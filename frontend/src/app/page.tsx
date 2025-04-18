@@ -62,7 +62,7 @@ export default function Home() {
 
   // Contract write functions
   const { writeContract: deposit, data: depositData, status: depositStatus } = useWriteContract();
-  const { writeContract: withdraw, status: withdrawStatus } = useWriteContract();
+  const { writeContract: withdraw, data: withdrawData, status: withdrawStatus } = useWriteContract();
   const { writeContract: approve, data: approveData, status: approveStatus } = useWriteContract();
 
   // Check token approval
@@ -239,12 +239,67 @@ export default function Home() {
   // Handle withdraw success
   useEffect(() => {
     if (withdrawStatus === 'success') {
-      setShowWithdrawSuccessPopup(true);
-      // Refresh user stats after withdrawal
-      refetchDeposited?.();
-      refetchBurned?.();
+      console.log('Withdrawal transaction submitted successfully');
+      setShowProcessingPopup(true);
     }
-  }, [withdrawStatus, refetchDeposited, refetchBurned]);
+  }, [withdrawStatus]);
+
+  // Handle withdraw confirmation
+  const { isSuccess: isWithdrawConfirmed, data: withdrawReceiptData } = useWaitForTransactionReceipt({
+    hash: withdrawData,
+  });
+
+  // Handle withdraw confirmation
+  useEffect(() => {
+    if (isWithdrawConfirmed && withdrawData && publicClient) {
+      console.log('Withdraw transaction confirmed on chain. Hash:', withdrawData);
+      
+      const fetchReceipt = async () => {
+        try {
+          const receipt = await publicClient.getTransactionReceipt({ hash: withdrawData });
+          console.log('Withdraw receipt:', receipt);
+
+          // Find Withdrawn event in logs
+          const withdrawLog = receipt.logs.find(log => 
+            log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
+          );
+
+          if (withdrawLog) {
+            try {
+              const decodedLog = decodeEventLog({
+                abi: SWEAR_JAR_ABI,
+                data: withdrawLog.data,
+                topics: withdrawLog.topics,
+              });
+
+              console.log('Decoded withdraw log:', decodedLog);
+
+              if (decodedLog.eventName === 'Withdrawn') {
+                // Update UI
+                setShowProcessingPopup(false);
+                setShowWithdrawSuccessPopup(true);
+                
+                // Refresh stats
+                refetchDeposited?.();
+                refetchBurned?.();
+              }
+            } catch (decodeError) {
+              console.error('Error decoding withdraw event:', decodeError);
+            }
+          }
+
+          // Even if we couldn't decode the event, still hide processing
+          setShowProcessingPopup(false);
+
+        } catch (error) {
+          console.error('Error processing withdraw receipt:', error);
+          setShowProcessingPopup(false);
+        }
+      };
+
+      fetchReceipt();
+    }
+  }, [isWithdrawConfirmed, withdrawData, publicClient, refetchDeposited, refetchBurned]);
 
   // Update isPending state based on transaction status
   useEffect(() => {
