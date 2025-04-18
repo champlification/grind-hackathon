@@ -43,5 +43,4 @@
 - wallet connect button should be top right of the page
 - when user clicks the button to send, call contract function to deposit
 - if deposit is successful, pop up message with hamster dancing and leave it up until user clicks button to return
-  - pop up message should have green background (#00FF00) and display the dancing hamster .gif in the center of the page
 - if contract instead burns the tokens, pop up different message with hamster dancing and leave it up until user clicks button to return

@@ -7,15 +7,31 @@ export default function Home() {
   const [amount, setAmount] = useState('1');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
+  const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
+  
+  // Mock state for contract values
+  const [depositedAmount, setDepositedAmount] = useState(0);
+  const [burnedAmount, setBurnedAmount] = useState(0);
+  const MOCK_MINIMUM_WITHDRAWAL = 10; // Mock minimum amount needed to withdraw
 
   const handleDeposit = async () => {
     // TODO: Implement contract interaction
     const random = Math.random();
+    const amountNum = parseFloat(amount);
+    
     if (random < 0.1) {
+      setBurnedAmount(prev => prev + amountNum);
       setShowFailurePopup(true);
     } else {
+      setDepositedAmount(prev => prev + amountNum);
       setShowSuccessPopup(true);
     }
+  };
+
+  const handleWithdraw = async () => {
+    // TODO: Implement contract withdrawal
+    setDepositedAmount(0);
+    setShowWithdrawSuccessPopup(true);
   };
 
   return (
@@ -35,6 +51,39 @@ export default function Home() {
       {/* Main Content */}
       <div className="relative flex flex-col items-center justify-center min-h-[calc(100vh-88px)] p-4">
         <div className="w-full max-w-md space-y-8 bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A]">
+          {/* Stats Display */}
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
+              <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
+              <div className="flex items-baseline">
+                <span className="text-2xl font-bold text-white">{depositedAmount}</span>
+                <span className="ml-2 text-[#00FF8C]">$GRIND</span>
+              </div>
+              <div className="mt-2 text-xs text-[#CCCCCC]">
+                {depositedAmount >= MOCK_MINIMUM_WITHDRAWAL ? (
+                  <button
+                    onClick={handleWithdraw}
+                    className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
+                  >
+                    Withdraw $GRIND
+                  </button>
+                ) : (
+                  `Need ${MOCK_MINIMUM_WITHDRAWAL - depositedAmount} more to withdraw`
+                )}
+              </div>
+            </div>
+            <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
+              <div className="text-sm text-[#CCCCCC] mb-1">Burned</div>
+              <div className="flex items-baseline">
+                <span className="text-2xl font-bold text-white">{burnedAmount}</span>
+                <span className="ml-2 text-[#FF3333]">$GRIND</span>
+              </div>
+              <div className="mt-2 text-xs text-[#FF3333]">
+                Gone forever
+              </div>
+            </div>
+          </div>
+
           {/* Amount Input */}
           <div className="text-center">
             <label htmlFor="amount" className="block text-xl font-medium mb-2 text-[#00FF8C]">
@@ -120,6 +169,26 @@ export default function Home() {
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Oops! Your $GRIND was burned!</p>
             <button
               onClick={() => setShowFailurePopup(false)}
+              className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Withdraw Success Popup */}
+      {showWithdrawSuccessPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
+            <img
+              src="/static/GrindRain01_GBG.gif"
+              alt="Money Rain Hamster"
+              className="mx-auto mb-4 rounded-xl"
+            />
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $GRIND!</p>
+            <button
+              onClick={() => setShowWithdrawSuccessPopup(false)}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
