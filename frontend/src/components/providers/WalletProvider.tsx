@@ -56,14 +56,20 @@ const customTheme = {
   ...darkTheme(),
   colors: {
     ...darkTheme().colors,
-    accentColor: '#004E3A',
-    accentColorForeground: 'white',
-    connectButtonBackground: '#004E3A',
-    connectButtonInnerBackground: '#003C2C',
+    accentColor: '#00FF8C',
+    accentColorForeground: '#000000',
+    connectButtonBackground: '#1A1A1A',
+    connectButtonInnerBackground: '#0A0A0A',
+    connectButtonText: '#FFFFFF',
+    modalBackground: '#1A1A1A',
+    modalText: '#FFFFFF',
+    modalTextSecondary: '#CCCCCC',
+    modalBackdrop: 'rgba(0, 0, 0, 0.8)',
   },
   radii: {
     ...darkTheme().radii,
-    connectButton: '9999px'
+    connectButton: '12px',
+    modal: '16px',
   },
   fonts: {
     ...darkTheme().fonts,
