@@ -1,10 +1,11 @@
 'use client';
 
-import { RainbowKitProvider, getDefaultConfig, darkTheme } from '@rainbow-me/rainbowkit';
-import { WagmiProvider } from 'wagmi';
-import { http } from 'viem';
+import { RainbowKitProvider, darkTheme, connectorsForWallets } from '@rainbow-me/rainbowkit';
+import { WagmiProvider, createConfig } from 'wagmi';
+import { createClient, http } from 'viem';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { memo } from 'react';
+import { abstractWallet } from '@abstract-foundation/agw-react/connectors';
 import '@rainbow-me/rainbowkit/styles.css';
 
 // Move these outside component to ensure single initialization
@@ -29,13 +30,32 @@ const abstractChain = {
   testnet: true,
 };
 
-const config = getDefaultConfig({
-  appName: 'Swear Jar',
-  projectId: 'dummy-project-id',
+const connectors = connectorsForWallets(
+  [
+    {
+      groupName: "Abstract",
+      wallets: [abstractWallet],
+    },
+  ],
+  {
+    appName: "Swear Jar",
+    projectId: "",
+    appDescription: "",
+    appIcon: "",
+    appUrl: "",
+  }
+);
+
+const config = createConfig({
+  connectors,
   chains: [abstractChain],
-  transports: {
-    [abstractChain.id]: http(),
+  client({ chain }) {
+    return createClient({
+      chain,
+      transport: http(),
+    });
   },
+  ssr: true,
 });
 
 function BaseWalletProvider({ children }: { children: React.ReactNode }) {
