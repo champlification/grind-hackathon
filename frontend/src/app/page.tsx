@@ -9,7 +9,7 @@ import { SWEAR_JAR_ABI } from '../config/abis';
 import { ERC20_ABI } from '../config/abis';
 
 // Add event type definitions at the top of the file
-type SwearJarEventName = 'Deposited' | 'TokensCleansed' | 'Withdrawn';
+type SwearJarEventName = 'Deposited' | 'TokensCleansed' | 'Withdrawn' | 'MercyGranted';
 
 type SwearJarEventArgs = {
   Deposited: {
@@ -26,6 +26,10 @@ type SwearJarEventArgs = {
     user: string;
     amount: bigint;
   };
+  MercyGranted: {
+    user: string;
+    amount: bigint;
+  };
 };
 
 type SwearJarEvent = {
@@ -34,6 +38,24 @@ type SwearJarEvent = {
     args: SwearJarEventArgs[K];
   };
 }[SwearJarEventName];
+
+// Add ProcessingMessage enum
+type ProcessingMessageType = 
+  | 'INITIAL'
+  | 'APPROVAL_REQUESTED'
+  | 'APPROVAL_PENDING'
+  | 'APPROVAL_CONFIRMED'
+  | 'DEPOSIT_REQUESTED'
+  | 'DEPOSIT_PENDING';
+
+const PROCESSING_MESSAGES: Record<ProcessingMessageType, string> = {
+  INITIAL: 'Processing your transaction...',
+  APPROVAL_REQUESTED: 'Please approve tokens in your wallet...',
+  APPROVAL_PENDING: 'Waiting for approval confirmation...',
+  APPROVAL_CONFIRMED: 'Approval confirmed, please confirm deposit in your wallet...',
+  DEPOSIT_REQUESTED: 'Please confirm deposit in your wallet...',
+  DEPOSIT_PENDING: 'Waiting for deposit confirmation...',
+};
 
 // Utility function to format token amounts
 const formatTokenAmount = (amount: bigint | undefined): string => {
@@ -67,6 +89,25 @@ const Instructions = ({ cleanseOddsNum, minWithdrawAmount }: { cleanseOddsNum: n
       </div>
     </div>
   );
+};
+
+// Add event signatures we care about
+const EVENT_SIGNATURES = {
+  Deposited: 'Deposited(address,uint256,bool)',
+  TokensCleansed: 'TokensCleansed(address,uint256,uint256)',
+  MercyGranted: 'MercyGranted(address,uint256)',
+};
+
+// Add these type definitions at the top of the file, after the imports
+type DecodedEventLog = {
+  eventName: string;
+  args: {
+    user?: `0x${string}`;
+    amount?: bigint;
+    wasCleansed?: boolean;
+    burnAmount?: bigint;
+    contractAmount?: bigint;
+  };
 };
 
 export default function Home() {
@@ -137,13 +178,16 @@ export default function Home() {
   const publicClient = usePublicClient();
 
   // Add a state for the processing message
-  const [processingMessage, setProcessingMessage] = useState('Processing your transaction...');
+  const [processingMessage, setProcessingMessage] = useState(PROCESSING_MESSAGES.INITIAL);
 
   // Add a state to track the overall transaction flow
   const [isTransacting, setIsTransacting] = useState(false);
 
   // Add a new state to track transaction type
   const [currentTransactionType, setCurrentTransactionType] = useState<'approval' | 'deposit' | null>(null);
+
+  // Add new state for mercy popup
+  const [showMercyPopup, setShowMercyPopup] = useState(false);
 
   // Update approval status when allowance changes or amount changes
   useEffect(() => {
@@ -181,116 +225,138 @@ export default function Home() {
     setCurrentTransactionType(null);
   }, [amount]);
 
+  // Update resetAllPopups to also reset currentTxHash
+  const resetAllPopups = () => {
+    setShowSuccessPopup(false);
+    setShowFailurePopup(false);
+    setShowWithdrawSuccessPopup(false);
+    setShowProcessingPopup(false);
+    setShowMercyPopup(false);
+    setIsTransacting(false);
+    setCurrentTransactionType(null);
+    setProcessingMessage(PROCESSING_MESSAGES.INITIAL);
+    setCurrentTxHash(undefined);  // Reset the transaction hash
+    // Refresh allowance
+    refetchAllowance?.();
+  };
+
   // Update the transaction receipt effect
   useEffect(() => {
-    if (isTransactionConfirmed && currentTxHash && publicClient) {
-      const fetchReceipt = async () => {
-        try {
-          const receipt = await publicClient.getTransactionReceipt({ 
-            hash: currentTxHash 
-          });
+    if (!isTransactionConfirmed || !currentTxHash || !publicClient || !currentTransactionType) {
+      return;
+    }
 
-          // Only process events for deposit transactions
-          if (currentTransactionType !== 'deposit') {
-            return;
-          }
+    const fetchReceipt = async () => {
+      try {
+        const receipt = await publicClient.getTransactionReceipt({ 
+          hash: currentTxHash 
+        });
 
-          // Find relevant events in the logs
-          const logs = receipt.logs.filter(log => 
-            log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
-          );
+        // Only process events for deposit transactions
+        if (currentTransactionType !== 'deposit') {
+          return;
+        }
 
-          if (logs.length === 0) {
-            if (!isTransacting) {
-              setShowProcessingPopup(false);
-            }
-            return;
-          }
+        // Find relevant events in the logs
+        const logs = receipt.logs.filter(log => 
+          log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
+        );
 
-          let foundEvent = false;
-
-          // Try to decode each log
-          for (const log of logs) {
-            try {
-              const decodedLog = decodeEventLog({
-                abi: SWEAR_JAR_ABI,
-                data: log.data,
-                topics: log.topics,
-              }) as SwearJarEvent;
-
-              console.log('Decoded event:', decodedLog.eventName);
-
-              // Only process if it's for the current user
-              const isCurrentUser = decodedLog.args.user.toLowerCase() === address?.toLowerCase();
-              if (!isCurrentUser) continue;
-
-              foundEvent = true;
-
-              switch (decodedLog.eventName) {
-                case 'Deposited':
-                  setShowProcessingPopup(false);
-                  setIsTransacting(false);
-                  if (decodedLog.args.wasCleansed) {
-                    setShowFailurePopup(true);
-                    setShowSuccessPopup(false);
-                  } else {
-                    setShowSuccessPopup(true);
-                    setShowFailurePopup(false);
-                  }
-                  break;
-
-                case 'TokensCleansed':
-                  setShowProcessingPopup(false);
-                  setIsTransacting(false);
-                  setShowFailurePopup(true);
-                  setShowSuccessPopup(false);
-                  break;
-
-                case 'Withdrawn':
-                  setShowProcessingPopup(false);
-                  setIsTransacting(false);
-                  setShowWithdrawSuccessPopup(true);
-                  break;
-              }
-
-              if (foundEvent) {
-                setCurrentTransactionType(null);
-                break;
-              }
-
-            } catch (error) {
-              console.error('Error decoding specific log:', error);
-              continue;
-            }
-          }
-
-          if (!foundEvent) {
-            if (receipt.status === 'success') {
-              console.log('Transaction succeeded but no relevant events found');
-              refetchDeposited?.();
-              refetchBurned?.();
-              refetchAllowance?.();
-            } else {
-              console.error('Transaction failed');
-              setShowProcessingPopup(false);
-              setIsTransacting(false);
-              setShowFailurePopup(true);
-            }
-            setCurrentTransactionType(null);
-          }
-
-        } catch (error) {
-          console.error('Error processing receipt:', error);
+        if (logs.length === 0) {
           if (!isTransacting) {
             setShowProcessingPopup(false);
           }
-          setCurrentTransactionType(null);
+          return;
         }
-      };
 
-      fetchReceipt();
-    }
-  }, [isTransactionConfirmed, currentTxHash, publicClient, refetchDeposited, refetchBurned, refetchAllowance, isTransacting, address, currentTransactionType]);
+        let foundEvent = false;
+        let wasTokenCleansed = false;
+        let mercyGranted = false;
+
+        // Try to decode each log
+        for (const log of logs) {
+          try {
+            const decodedLog = decodeEventLog({
+              abi: SWEAR_JAR_ABI,
+              data: log.data,
+              topics: log.topics,
+              strict: false
+            }) as DecodedEventLog;
+
+            console.log('Processing event:', {
+              eventName: decodedLog.eventName,
+              args: decodedLog.args,
+              currentTxHash,
+              currentTransactionType
+            });
+
+            // Only process if it's for the current user
+            const isCurrentUser = decodedLog.args.user?.toLowerCase() === address?.toLowerCase();
+            if (!isCurrentUser) continue;
+
+            foundEvent = true;
+
+            switch (decodedLog.eventName) {
+              case 'Deposited':
+                wasTokenCleansed = decodedLog.args.wasCleansed ?? false;
+                break;
+
+              case 'TokensCleansed':
+                wasTokenCleansed = true;
+                break;
+
+              case 'MercyGranted':
+                mercyGranted = true;
+                break;
+            }
+
+          } catch (error) {
+            console.log('Skipping unrecognized event:', error);
+            continue;
+          }
+        }
+
+        // After processing all events, determine final state
+        if (foundEvent) {
+          setShowProcessingPopup(false);
+          setIsTransacting(false);
+          setCurrentTransactionType(null);
+          setCurrentTxHash(undefined);  // Reset the transaction hash after processing
+          
+          if (wasTokenCleansed) {
+            if (mercyGranted) {
+              setShowMercyPopup(true);
+              setShowFailurePopup(false);
+              setShowSuccessPopup(false);
+            } else {
+              setShowFailurePopup(true);
+              setShowSuccessPopup(false);
+              setShowMercyPopup(false);
+            }
+          } else {
+            setShowSuccessPopup(true);
+            setShowFailurePopup(false);
+            setShowMercyPopup(false);
+          }
+        }
+
+        // Update stats regardless of outcome
+        refetchDeposited?.();
+        refetchBurned?.();
+        refetchAllowance?.();
+
+      } catch (error) {
+        console.error('Error processing receipt:', error);
+        if (!isTransacting) {
+          setShowProcessingPopup(false);
+        }
+        setCurrentTransactionType(null);
+        setCurrentTxHash(undefined);  // Reset the transaction hash on error
+      }
+    };
+
+    fetchReceipt();
+  }, [isTransactionConfirmed, currentTxHash, publicClient, currentTransactionType, address, isTransacting, refetchDeposited, refetchBurned, refetchAllowance]);
 
   // Update isPending state based on transaction status
   useEffect(() => {
@@ -301,6 +367,106 @@ export default function Home() {
     );
   }, [approveStatus, depositStatus, withdrawStatus]);
 
+  // Update handleTokenApproval
+  const handleTokenApproval = async (amountInWei: bigint): Promise<void> => {
+    if (!address || !publicClient) throw new Error('No address or public client');
+
+    console.log('Approval needed, approving tokens...', {
+      currentAllowance: allowance?.toString() || '0',
+      amountInWei: amountInWei.toString()
+    });
+    
+    try {
+      setApproveStatus('pending');
+      setProcessingMessage(PROCESSING_MESSAGES.APPROVAL_REQUESTED);
+      setCurrentTransactionType('approval');
+      
+      // Submit approval transaction
+      const hash = await approve({
+        address: CUSS_TOKEN_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [SWEAR_JAR_ADDRESS, amountInWei],
+      });
+
+      setCurrentTxHash(hash);
+      setProcessingMessage(PROCESSING_MESSAGES.APPROVAL_PENDING);
+
+      // Wait for approval transaction to be mined
+      const approvalReceipt = await publicClient.waitForTransactionReceipt({ 
+        hash,
+        timeout: 60_000
+      });
+
+      if (approvalReceipt.status !== 'success') {
+        throw new Error('Approval transaction failed');
+      }
+
+      setApproveStatus('success');
+      setProcessingMessage(PROCESSING_MESSAGES.APPROVAL_CONFIRMED);
+
+      // Wait for chain to update
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Refresh allowance
+      await refetchAllowance?.();
+      
+      // Verify the allowance was updated
+      const updatedAllowance = await publicClient.readContract({
+        address: CUSS_TOKEN_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'allowance',
+        args: [address, SWEAR_JAR_ADDRESS],
+      }) as bigint;
+
+      if (updatedAllowance < amountInWei) {
+        throw new Error('Allowance not updated after approval');
+      }
+    } catch (error) {
+      console.error('Approval process failed:', error);
+      setApproveStatus('error');
+      setShowProcessingPopup(false);
+      setShowFailurePopup(true);
+      setIsTransacting(false);
+      setCurrentTransactionType(null);
+      throw error;
+    }
+  };
+
+  // Update handleTokenDeposit
+  const handleTokenDeposit = async (amountInWei: bigint): Promise<void> => {
+    if (!address || !publicClient) throw new Error('No address or public client');
+
+    console.log('Depositing:', amountInWei.toString());
+    setDepositStatus('pending');
+    setProcessingMessage(PROCESSING_MESSAGES.DEPOSIT_REQUESTED);
+    setCurrentTransactionType('deposit');
+    
+    const hash = await deposit({
+      address: SWEAR_JAR_ADDRESS,
+      abi: SWEAR_JAR_ABI,
+      functionName: 'deposit',
+      args: [amountInWei],
+    });
+
+    setCurrentTxHash(hash);
+    setProcessingMessage(PROCESSING_MESSAGES.DEPOSIT_PENDING);
+    
+    // Wait for confirmation
+    const receipt = await publicClient.waitForTransactionReceipt({ 
+      hash,
+      timeout: 60_000
+    });
+
+    if (receipt.status !== 'success') {
+      throw new Error('Deposit transaction failed');
+    }
+
+    setDepositStatus('success');
+    // Let the event handler manage popups and UI updates
+  };
+
+  // Update handleDeposit
   const handleDeposit = async () => {
     if (!isConnected || !address || !publicClient) return;
 
@@ -312,101 +478,22 @@ export default function Home() {
       }
       
       const amountInWei = parseUnits(amount, 18);
+      
+      // Reset all UI states before starting new deposit
+      resetAllPopups();
+      
       setIsTransacting(true);
       setShowProcessingPopup(true);
-      setProcessingMessage('Processing your transaction...');
-      
-      // Hide any existing popups
-      setShowSuccessPopup(false);
-      setShowFailurePopup(false);
+      setProcessingMessage(PROCESSING_MESSAGES.INITIAL);
 
       // Check if approval is needed
       const currentAllowance = allowance ? BigInt(allowance.toString()) : 0n;
       if (currentAllowance < amountInWei) {
-        console.log('Approval needed, approving tokens...', {
-          currentAllowance: currentAllowance.toString(),
-          amountInWei: amountInWei.toString()
-        });
-        
-        try {
-          setApproveStatus('pending');
-          setProcessingMessage('Please approve tokens in your wallet...');
-          setCurrentTransactionType('approval');
-          
-          // Submit approval transaction and wait for the hash
-          const hash = await approve({
-            address: CUSS_TOKEN_ADDRESS,
-            abi: ERC20_ABI,
-            functionName: 'approve',
-            args: [SWEAR_JAR_ADDRESS, amountInWei],
-          });
-
-          setCurrentTxHash(hash);
-          setProcessingMessage('Waiting for approval confirmation...');
-
-          // Wait for approval transaction to be mined
-          console.log('Waiting for approval confirmation...');
-          const approvalReceipt = await publicClient.waitForTransactionReceipt({ 
-            hash,
-            timeout: 60_000 // 60 seconds timeout
-          });
-
-          if (approvalReceipt.status !== 'success') {
-            throw new Error('Approval transaction failed');
-          }
-
-          setApproveStatus('success');
-          setProcessingMessage('Approval confirmed, please confirm deposit in your wallet...');
-
-          // Wait a bit for the chain to update
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Refetch allowance
-          await refetchAllowance?.();
-          
-          // Get the latest allowance
-          const updatedAllowance = await publicClient.readContract({
-            address: CUSS_TOKEN_ADDRESS,
-            abi: ERC20_ABI,
-            functionName: 'allowance',
-            args: [address, SWEAR_JAR_ADDRESS],
-          }) as bigint;
-
-          console.log('Updated allowance:', updatedAllowance.toString());
-          console.log('Required amount:', amountInWei.toString());
-
-          // Verify the allowance was updated
-          if (updatedAllowance < amountInWei) {
-            throw new Error('Allowance not updated after approval');
-          }
-
-        } catch (approvalError) {
-          console.error('Approval process failed:', approvalError);
-          setApproveStatus('error');
-          setShowProcessingPopup(false);
-          setShowFailurePopup(true);
-          setIsTransacting(false);
-          setCurrentTransactionType(null);
-          return;
-        }
+        await handleTokenApproval(amountInWei);
       }
 
       // Proceed with deposit
-      console.log('Depositing:', amountInWei.toString());
-      setDepositStatus('pending');
-      setProcessingMessage('Please confirm deposit in your wallet...');
-      setCurrentTransactionType('deposit');
-      
-      const hash = await deposit({
-        address: SWEAR_JAR_ADDRESS,
-        abi: SWEAR_JAR_ABI,
-        functionName: 'deposit',
-        args: [amountInWei],
-      });
-
-      setCurrentTxHash(hash);
-      setProcessingMessage('Waiting for deposit confirmation...');
-      setDepositStatus('success');
+      await handleTokenDeposit(amountInWei);
 
     } catch (error) {
       console.error('Deposit failed:', error);
@@ -616,11 +703,7 @@ export default function Home() {
               Your $CUSS was added to the jar!
             </p>
             <button
-              onClick={() => {
-                setShowSuccessPopup(false);
-                // Refetch allowance to get the latest value
-                refetchAllowance?.();
-              }}
+              onClick={resetAllPopups}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
@@ -642,11 +725,7 @@ export default function Home() {
               Oops! Your $CUSS was cleansed!
             </p>
             <button
-              onClick={() => {
-                setShowFailurePopup(false);
-                // Refetch allowance to get the latest value
-                refetchAllowance?.();
-              }}
+              onClick={resetAllPopups}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
@@ -666,13 +745,38 @@ export default function Home() {
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $CUSS!</p>
             <button
-              onClick={() => setShowWithdrawSuccessPopup(false)}
+              onClick={resetAllPopups}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
             </button>
           </div>
-    </div>
+        </div>
+      )}
+
+      {/* Mercy Popup */}
+      {showMercyPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
+            <img
+              src="/static/GrindRain01_GBG.gif"
+              alt="Mercy Granted"
+              className="mx-auto mb-4 rounded-xl"
+            />
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
+              Your tokens were cleansed, but mercy was granted!
+            </p>
+            <p className="text-[#CCCCCC] mb-4">
+              Some of your tokens have been returned through divine mercy.
+            </p>
+            <button
+              onClick={resetAllPopups}
+              className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </main>
   );
