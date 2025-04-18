@@ -2,8 +2,10 @@
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useState } from 'react';
+import { useAccount } from 'wagmi';
 
 export default function Home() {
+  const { isConnected } = useAccount();
   const [amount, setAmount] = useState('1');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
@@ -15,6 +17,7 @@ export default function Home() {
   const MOCK_MINIMUM_WITHDRAWAL = 10; // Mock minimum amount needed to withdraw
 
   const handleDeposit = async () => {
+    if (!isConnected) return;
     // TODO: Implement contract interaction
     const random = Math.random();
     const amountNum = parseFloat(amount);
@@ -29,6 +32,7 @@ export default function Home() {
   };
 
   const handleWithdraw = async () => {
+    if (!isConnected) return;
     // TODO: Implement contract withdrawal
     setDepositedAmount(0);
     setShowWithdrawSuccessPopup(true);
@@ -56,11 +60,13 @@ export default function Home() {
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{depositedAmount}</span>
+                <span className="text-2xl font-bold text-white">{isConnected ? depositedAmount : '0'}</span>
                 <span className="ml-2 text-[#00FF8C]">$GRIND</span>
               </div>
               <div className="mt-2 text-xs text-[#CCCCCC]">
-                {depositedAmount >= MOCK_MINIMUM_WITHDRAWAL ? (
+                {!isConnected ? (
+                  "Connect wallet to deposit"
+                ) : depositedAmount >= MOCK_MINIMUM_WITHDRAWAL ? (
                   <button
                     onClick={handleWithdraw}
                     className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
@@ -75,7 +81,7 @@ export default function Home() {
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Burned</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{burnedAmount}</span>
+                <span className="text-2xl font-bold text-white">{isConnected ? burnedAmount : '0'}</span>
                 <span className="ml-2 text-[#FF3333]">$GRIND</span>
               </div>
               <div className="mt-2 text-xs text-[#FF3333]">
@@ -94,16 +100,18 @@ export default function Home() {
               id="amount"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-[#0A0A0A] border-2 border-[#2A2A2A] focus:outline-none focus:border-[#00FF8C] text-white transition-colors"
+              className={`w-full px-4 py-3 rounded-xl bg-[#0A0A0A] border-2 border-[#2A2A2A] focus:outline-none focus:border-[#00FF8C] text-white transition-colors ${!isConnected && 'opacity-50 cursor-not-allowed'}`}
               min="1"
               step="1"
+              disabled={!isConnected}
             />
           </div>
 
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            className="w-64 h-64 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-[#FF3333] text-2xl font-bold rounded-full 
+            disabled={!isConnected}
+            className={`w-64 h-64 bg-[#1A1A1A] text-[#FF3333] text-2xl font-bold rounded-full 
             shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
             border-2 border-[#FF3333] 
             transition-all duration-300 ease-in-out
@@ -111,9 +119,12 @@ export default function Home() {
             flex items-center justify-center mx-auto 
             hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
             group relative
-            before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]"
+            before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
+            ${!isConnected && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
           >
-            <span className="group-hover:animate-pulse">Deposit $GRIND</span>
+            <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
+              {isConnected ? 'Deposit $GRIND' : 'Connect Wallet'}
+            </span>
           </button>
 
           {/* Instructions */}
