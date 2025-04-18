@@ -30,21 +30,15 @@ const abstractChain = {
   testnet: true,
 };
 
-const connectors = connectorsForWallets(
-  [
-    {
-      groupName: "Abstract",
-      wallets: [abstractWallet],
-    },
-  ],
+const connectors = connectorsForWallets([
   {
-    appName: "Swear Jar",
-    projectId: "",
-    appDescription: "",
-    appIcon: "",
-    appUrl: "",
+    groupName: "Abstract",
+    wallets: [() => abstractWallet({ chains: [abstractChain] })]
   }
-);
+], {
+  appName: "Swear Jar",
+  projectId: "",
+});
 
 const config = createConfig({
   connectors,
@@ -58,30 +52,30 @@ const config = createConfig({
   ssr: true,
 });
 
+const customTheme = {
+  ...darkTheme(),
+  colors: {
+    ...darkTheme().colors,
+    accentColor: '#004E3A',
+    accentColorForeground: 'white',
+    connectButtonBackground: '#004E3A',
+    connectButtonInnerBackground: '#003C2C',
+  },
+  radii: {
+    ...darkTheme().radii,
+    connectButton: '9999px'
+  },
+  fonts: {
+    ...darkTheme().fonts,
+    body: 'inherit'
+  }
+};
+
 function BaseWalletProvider({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
-        <RainbowKitProvider
-          theme={{
-            ...darkTheme(),
-            colors: {
-              ...darkTheme().colors,
-              accentColor: '#004E3A',
-              accentColorForeground: 'white',
-              connectButtonBackground: '#004E3A',
-              connectButtonInnerBackground: '#003C2C',
-            },
-            radii: {
-              ...darkTheme().radii,
-              connectButton: '9999px'
-            },
-            fonts: {
-              ...darkTheme().fonts,
-              body: 'inherit'
-            }
-          }}
-        >
+        <RainbowKitProvider theme={customTheme}>
           {children}
         </RainbowKitProvider>
       </WagmiProvider>
