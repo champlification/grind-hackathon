@@ -54,7 +54,15 @@ export default function Home() {
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            className="w-64 h-64 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-[#FF3333] text-2xl font-bold rounded-full shadow-[0_0_20px_rgba(255,51,51,0.2)] transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center mx-auto border-2 border-[#FF3333] hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3)] group"
+            className="w-64 h-64 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-[#FF3333] text-2xl font-bold rounded-full 
+            shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
+            border-2 border-[#FF3333] 
+            transition-all duration-300 ease-in-out
+            transform hover:scale-105 active:scale-95 
+            flex items-center justify-center mx-auto 
+            hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
+            group relative
+            before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]"
           >
             <span className="group-hover:animate-pulse">Deposit $GRIND</span>
           </button>
