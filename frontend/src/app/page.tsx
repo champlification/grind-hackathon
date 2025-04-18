@@ -23,13 +23,17 @@ export default function Home() {
       {/* Background Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] pointer-events-none"></div>
 
-      {/* Wallet Connect Button */}
-      <div className="absolute top-6 right-6 p-2 z-10">
+      {/* Header with Title and Wallet Button */}
+      <div className="relative flex justify-between items-center px-6 py-6 z-10">
+        <h1 className="text-3xl font-bold">
+          <span className="text-white">Swear</span>
+          <span className="text-[#00FF8C]">Jar</span>
+        </h1>
         <ConnectButton />
       </div>
 
       {/* Main Content */}
-      <div className="relative flex flex-col items-center justify-center min-h-screen p-4">
+      <div className="relative flex flex-col items-center justify-center min-h-[calc(100vh-88px)] p-4">
         <div className="w-full max-w-md space-y-8 bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A]">
           {/* Amount Input */}
           <div className="text-center">
@@ -50,9 +54,9 @@ export default function Home() {
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            className="w-64 h-64 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-2xl font-bold rounded-full shadow-lg transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center mx-auto"
+            className="w-64 h-64 bg-[#1A1A1A] hover:bg-[#2A2A2A] text-[#FF3333] text-2xl font-bold rounded-full shadow-[0_0_20px_rgba(255,51,51,0.2)] transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center mx-auto border-2 border-[#FF3333] hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3)] group"
           >
-            Deposit $GRIND
+            <span className="group-hover:animate-pulse">Deposit $GRIND</span>
           </button>
 
           {/* Instructions */}
@@ -81,10 +85,11 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
             <img
-              src="/static/hamster-dance.gif"
-              alt="Dancing Hamster"
+              src="/static/GrindBurn04.gif"
+              alt="Success Hamster"
               className="mx-auto mb-4 rounded-xl"
             />
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Your $GRIND was added to the jar!</p>
             <button
               onClick={() => setShowSuccessPopup(false)}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
