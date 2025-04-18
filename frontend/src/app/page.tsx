@@ -8,6 +8,33 @@ import { SWEAR_JAR_ADDRESS, CUSS_TOKEN_ADDRESS } from '../config/addresses';
 import { SWEAR_JAR_ABI } from '../config/abis';
 import { ERC20_ABI } from '../config/abis';
 
+// Add event type definitions at the top of the file
+type SwearJarEventName = 'Deposited' | 'TokensCleansed' | 'Withdrawn';
+
+type SwearJarEventArgs = {
+  Deposited: {
+    user: string;
+    amount: bigint;
+    wasCleansed: boolean;
+  };
+  TokensCleansed: {
+    user: string;
+    burnAmount: bigint;
+    contractAmount: bigint;
+  };
+  Withdrawn: {
+    user: string;
+    amount: bigint;
+  };
+};
+
+type SwearJarEvent = {
+  [K in SwearJarEventName]: {
+    eventName: K;
+    args: SwearJarEventArgs[K];
+  };
+}[SwearJarEventName];
+
 // Utility function to format token amounts
 const formatTokenAmount = (amount: bigint | undefined): string => {
   if (!amount) return '0';
@@ -109,10 +136,19 @@ export default function Home() {
 
   const publicClient = usePublicClient();
 
-  // Update approval status when allowance changes or approval confirms
+  // Add a state for the processing message
+  const [processingMessage, setProcessingMessage] = useState('Processing your transaction...');
+
+  // Add a state to track the overall transaction flow
+  const [isTransacting, setIsTransacting] = useState(false);
+
+  // Add a new state to track transaction type
+  const [currentTransactionType, setCurrentTransactionType] = useState<'approval' | 'deposit' | null>(null);
+
+  // Update approval status when allowance changes or amount changes
   useEffect(() => {
     const checkApproval = async () => {
-      if (!address || !amount || allowance === null || allowance === undefined) {
+      if (!address || !amount || allowance === undefined || allowance === null) {
         setNeedsApproval(true);
         return;
       }
@@ -120,10 +156,12 @@ export default function Home() {
       try {
         const amountInWei = parseUnits(amount, 18);
         const currentAllowance = BigInt(allowance.toString());
+        
         console.log('Checking approval:', {
-          allowance: currentAllowance.toString(),
-          required: amountInWei.toString()
+          currentAllowance: currentAllowance.toString(),
+          amountInWei: amountInWei.toString()
         });
+        
         setNeedsApproval(currentAllowance < amountInWei);
       } catch (error) {
         console.error('Error checking approval:', error);
@@ -131,20 +169,19 @@ export default function Home() {
       }
     };
 
-    // Only check approval if we have all required data
-    if (address && amount && allowance !== undefined && allowance !== null) {
-      checkApproval();
-    }
-  }, [address, allowance, amount, isTransactionConfirmed]);
+    checkApproval();
+  }, [address, allowance, amount]); // Add amount to dependencies
 
-  // Refresh allowance after successful approval
+  // Reset UI state when amount changes
   useEffect(() => {
-    if (isTransactionConfirmed) {
-      refetchAllowance?.();
-    }
-  }, [isTransactionConfirmed, refetchAllowance]);
+    setShowSuccessPopup(false);
+    setShowFailurePopup(false);
+    setShowProcessingPopup(false);
+    setIsTransacting(false);
+    setCurrentTransactionType(null);
+  }, [amount]);
 
-  // Watch for transaction confirmation
+  // Update the transaction receipt effect
   useEffect(() => {
     if (isTransactionConfirmed && currentTxHash && publicClient) {
       const fetchReceipt = async () => {
@@ -153,16 +190,24 @@ export default function Home() {
             hash: currentTxHash 
           });
 
+          // Only process events for deposit transactions
+          if (currentTransactionType !== 'deposit') {
+            return;
+          }
+
           // Find relevant events in the logs
           const logs = receipt.logs.filter(log => 
             log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
           );
 
           if (logs.length === 0) {
-            console.log('No events found in logs');
-            setShowProcessingPopup(false);
+            if (!isTransacting) {
+              setShowProcessingPopup(false);
+            }
             return;
           }
+
+          let foundEvent = false;
 
           // Try to decode each log
           for (const log of logs) {
@@ -171,66 +216,81 @@ export default function Home() {
                 abi: SWEAR_JAR_ABI,
                 data: log.data,
                 topics: log.topics,
-              });
+              }) as SwearJarEvent;
 
-              if (decodedLog.eventName === 'Deposited') {
-                const args = decodedLog.args as {
-                  user: string;
-                  amount: bigint;
-                  wasCleansed: boolean;
-                };
+              console.log('Decoded event:', decodedLog.eventName);
 
-                setShowProcessingPopup(false);
-                if (args.wasCleansed) {
+              // Only process if it's for the current user
+              const isCurrentUser = decodedLog.args.user.toLowerCase() === address?.toLowerCase();
+              if (!isCurrentUser) continue;
+
+              foundEvent = true;
+
+              switch (decodedLog.eventName) {
+                case 'Deposited':
+                  setShowProcessingPopup(false);
+                  setIsTransacting(false);
+                  if (decodedLog.args.wasCleansed) {
+                    setShowFailurePopup(true);
+                    setShowSuccessPopup(false);
+                  } else {
+                    setShowSuccessPopup(true);
+                    setShowFailurePopup(false);
+                  }
+                  break;
+
+                case 'TokensCleansed':
+                  setShowProcessingPopup(false);
+                  setIsTransacting(false);
                   setShowFailurePopup(true);
                   setShowSuccessPopup(false);
-                } else {
-                  setShowSuccessPopup(true);
-                  setShowFailurePopup(false);
-                }
+                  break;
+
+                case 'Withdrawn':
+                  setShowProcessingPopup(false);
+                  setIsTransacting(false);
+                  setShowWithdrawSuccessPopup(true);
+                  break;
+              }
+
+              if (foundEvent) {
+                setCurrentTransactionType(null);
                 break;
               }
 
-              if (decodedLog.eventName === 'Withdrawn') {
-                setShowProcessingPopup(false);
-                setShowWithdrawSuccessPopup(true);
-                break;
-              }
             } catch (error) {
-              console.error('Error decoding log:', error);
+              console.error('Error decoding specific log:', error);
+              continue;
             }
           }
 
-          // Refresh stats
-          refetchDeposited?.();
-          refetchBurned?.();
-          refetchAllowance?.();
+          if (!foundEvent) {
+            if (receipt.status === 'success') {
+              console.log('Transaction succeeded but no relevant events found');
+              refetchDeposited?.();
+              refetchBurned?.();
+              refetchAllowance?.();
+            } else {
+              console.error('Transaction failed');
+              setShowProcessingPopup(false);
+              setIsTransacting(false);
+              setShowFailurePopup(true);
+            }
+            setCurrentTransactionType(null);
+          }
 
         } catch (error) {
           console.error('Error processing receipt:', error);
-          setShowProcessingPopup(false);
+          if (!isTransacting) {
+            setShowProcessingPopup(false);
+          }
+          setCurrentTransactionType(null);
         }
       };
 
       fetchReceipt();
     }
-  }, [isTransactionConfirmed, currentTxHash, publicClient, refetchDeposited, refetchBurned, refetchAllowance]);
-
-  // Add a timeout to hide processing popup if no event is received
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    if (showProcessingPopup) {
-      timeoutId = setTimeout(() => {
-        console.log('No event received after 30 seconds, hiding processing popup');
-        setShowProcessingPopup(false);
-      }, 30000); // 30 seconds timeout
-    }
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [showProcessingPopup]);
+  }, [isTransactionConfirmed, currentTxHash, publicClient, refetchDeposited, refetchBurned, refetchAllowance, isTransacting, address, currentTransactionType]);
 
   // Update isPending state based on transaction status
   useEffect(() => {
@@ -252,13 +312,26 @@ export default function Home() {
       }
       
       const amountInWei = parseUnits(amount, 18);
+      setIsTransacting(true);
+      setShowProcessingPopup(true);
+      setProcessingMessage('Processing your transaction...');
+      
+      // Hide any existing popups
+      setShowSuccessPopup(false);
+      setShowFailurePopup(false);
 
       // Check if approval is needed
-      if (needsApproval) {
-        console.log('Approval needed, approving tokens...');
+      const currentAllowance = allowance ? BigInt(allowance.toString()) : 0n;
+      if (currentAllowance < amountInWei) {
+        console.log('Approval needed, approving tokens...', {
+          currentAllowance: currentAllowance.toString(),
+          amountInWei: amountInWei.toString()
+        });
+        
         try {
-          setShowProcessingPopup(true);
           setApproveStatus('pending');
+          setProcessingMessage('Please approve tokens in your wallet...');
+          setCurrentTransactionType('approval');
           
           // Submit approval transaction and wait for the hash
           const hash = await approve({
@@ -269,15 +342,21 @@ export default function Home() {
           });
 
           setCurrentTxHash(hash);
+          setProcessingMessage('Waiting for approval confirmation...');
 
           // Wait for approval transaction to be mined
           console.log('Waiting for approval confirmation...');
-          await publicClient.waitForTransactionReceipt({ 
+          const approvalReceipt = await publicClient.waitForTransactionReceipt({ 
             hash,
             timeout: 60_000 // 60 seconds timeout
           });
 
+          if (approvalReceipt.status !== 'success') {
+            throw new Error('Approval transaction failed');
+          }
+
           setApproveStatus('success');
+          setProcessingMessage('Approval confirmed, please confirm deposit in your wallet...');
 
           // Wait a bit for the chain to update
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -301,12 +380,13 @@ export default function Home() {
             throw new Error('Allowance not updated after approval');
           }
 
-          console.log('Approval successful, proceeding with deposit');
         } catch (approvalError) {
           console.error('Approval process failed:', approvalError);
           setApproveStatus('error');
           setShowProcessingPopup(false);
           setShowFailurePopup(true);
+          setIsTransacting(false);
+          setCurrentTransactionType(null);
           return;
         }
       }
@@ -314,6 +394,9 @@ export default function Home() {
       // Proceed with deposit
       console.log('Depositing:', amountInWei.toString());
       setDepositStatus('pending');
+      setProcessingMessage('Please confirm deposit in your wallet...');
+      setCurrentTransactionType('deposit');
+      
       const hash = await deposit({
         address: SWEAR_JAR_ADDRESS,
         abi: SWEAR_JAR_ABI,
@@ -322,6 +405,7 @@ export default function Home() {
       });
 
       setCurrentTxHash(hash);
+      setProcessingMessage('Waiting for deposit confirmation...');
       setDepositStatus('success');
 
     } catch (error) {
@@ -329,6 +413,8 @@ export default function Home() {
       setDepositStatus('error');
       setShowProcessingPopup(false);
       setShowFailurePopup(true);
+      setIsTransacting(false);
+      setCurrentTransactionType(null);
     }
   };
 
@@ -508,8 +594,8 @@ export default function Home() {
               alt="Processing"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Processing your deposit...</p>
-            <p className="text-[#CCCCCC] mb-4">Waiting for transaction confirmation</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">{processingMessage}</p>
+            <p className="text-[#CCCCCC] mb-4">Please wait while we process your transaction</p>
             <div className="animate-pulse">
               <div className="h-2 w-2 bg-[#00FF8C] rounded-full mx-auto"></div>
             </div>
@@ -586,7 +672,7 @@ export default function Home() {
               Close
             </button>
           </div>
-        </div>
+    </div>
       )}
     </main>
   );
