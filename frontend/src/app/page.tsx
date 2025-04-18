@@ -17,6 +17,31 @@ const formatTokenAmount = (amount: bigint | undefined): string => {
   });
 };
 
+// Instructions Component
+const Instructions = ({ cleanseOddsNum, minWithdrawAmount }: { cleanseOddsNum: number, minWithdrawAmount: bigint }) => {
+  return (
+    <div className="w-full max-w-md mx-auto mt-8 p-8 bg-[#1A1A1A] rounded-2xl shadow-xl border border-[#2A2A2A]">
+      <div className="text-center">
+        <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
+        <ul className="space-y-2 text-[#CCCCCC]">
+          <li className="flex items-center justify-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+            <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
+          </li>
+          <li className="flex items-center justify-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+            <span>{cleanseOddsNum}% chance it gets cleansed</span>
+          </li>
+          <li className="flex items-center justify-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+            <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState('1');
@@ -393,110 +418,115 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="relative flex flex-col items-center justify-center min-h-[calc(100vh-88px)] p-4">
-        <div className="w-full max-w-md space-y-8 bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A]">
-          {/* Stats Display */}
-          <div className="grid grid-cols-2 gap-4 mb-8">
-            <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
-              <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
-              <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">
-                  {isConnected ? formatTokenAmount(depositedAmount) : '0'}
-                </span>
-                <span className="ml-2 text-[#00FF8C]">$CUSS</span>
+        <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Main Card */}
+          <div className="space-y-8 bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A]">
+            {/* Stats Display */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
+                <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
+                <div className="flex items-baseline">
+                  <span className="text-2xl font-bold text-white">
+                    {isConnected ? formatTokenAmount(depositedAmount) : '0'}
+                  </span>
+                  <span className="ml-2 text-[#00FF8C]">$CUSS</span>
+                </div>
+                <div className="mt-2 text-xs text-[#CCCCCC]">
+                  {!isConnected ? (
+                    "Connect wallet to deposit"
+                  ) : depositedAmountNum >= minWithdrawAmountNum ? (
+                    <button
+                      onClick={handleWithdraw}
+                      className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
+                    >
+                      Withdraw $CUSS
+                    </button>
+                  ) : (
+                    `Need ${formatTokenAmount(amountNeeded)} more to withdraw`
+                  )}
+                </div>
               </div>
-              <div className="mt-2 text-xs text-[#CCCCCC]">
-                {!isConnected ? (
-                  "Connect wallet to deposit"
-                ) : depositedAmountNum >= minWithdrawAmountNum ? (
-                  <button
-                    onClick={handleWithdraw}
-                    className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
-                  >
-                    Withdraw $CUSS
-                  </button>
-                ) : (
-                  `Need ${formatTokenAmount(amountNeeded)} more to withdraw`
-                )}
+              <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
+                <div className="text-sm text-[#CCCCCC] mb-1">Cleansed</div>
+                <div className="flex items-baseline">
+                  <span className="text-2xl font-bold text-white">
+                    {isConnected ? formatTokenAmount(burnedAmount) : '0'}
+                  </span>
+                  <span className="ml-2 text-[#FF3333]">$CUSS</span>
+                </div>
+                <div className="mt-2 text-xs text-[#FF3333]">
+                  Gone forever
+                </div>
               </div>
             </div>
-            <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
-              <div className="text-sm text-[#CCCCCC] mb-1">Burned</div>
-              <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">
-                  {isConnected ? formatTokenAmount(burnedAmount) : '0'}
-                </span>
-                <span className="ml-2 text-[#FF3333]">$CUSS</span>
-              </div>
-              <div className="mt-2 text-xs text-[#FF3333]">
-                Gone forever
-              </div>
+
+            {/* Amount Input */}
+            <div className="text-center">
+              <label htmlFor="amount" className="block text-xl font-medium mb-2 text-[#00FF8C]">
+                Amount of $CUSS to deposit
+              </label>
+              <input
+                type="number"
+                id="amount"
+                value={amount}
+                onChange={(e) => {
+                  // Ensure non-negative numbers only
+                  const value = e.target.value;
+                  if (value === '' || Number(value) >= 0) {
+                    setAmount(value);
+                  }
+                }}
+                className={`w-full px-4 py-3 rounded-xl bg-[#0A0A0A] border-2 border-[#2A2A2A] focus:outline-none focus:border-[#00FF8C] text-white transition-colors ${!isConnected && 'opacity-50 cursor-not-allowed'}`}
+                min="0"
+                step="0.01"
+                placeholder="Enter amount"
+                disabled={!isConnected}
+              />
+            </div>
+
+            {/* Deposit Button */}
+            <button
+              onClick={handleDeposit}
+              disabled={!isConnected || isPending}
+              className={`w-32 h-32 bg-[#1A1A1A] text-[#FF3333] text-xl font-bold rounded-full 
+              shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
+              border-2 border-[#FF3333] 
+              transition-all duration-300 ease-in-out
+              transform hover:scale-105 active:scale-95 
+              flex items-center justify-center mx-auto 
+              hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
+              group relative
+              before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
+              ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
+            >
+              <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
+                {!isConnected ? 'Connect Wallet' : 
+                 isPending ? 'Processing...' :
+                 needsApproval ? 'Approve $CUSS' : 'Deposit $CUSS'}
+              </span>
+            </button>
+          </div>
+
+          {/* Instructions Component */}
+          <div className="bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A] flex items-center">
+            <div className="text-center w-full">
+              <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
+              <ul className="space-y-2 text-[#CCCCCC]">
+                <li className="flex items-center justify-center space-x-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                  <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
+                </li>
+                <li className="flex items-center justify-center space-x-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                  <span>{cleanseOddsNum}% chance it gets cleansed</span>
+                </li>
+                <li className="flex items-center justify-center space-x-2">
+                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                  <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
+                </li>
+              </ul>
             </div>
           </div>
-
-          {/* Amount Input */}
-          <div className="text-center">
-            <label htmlFor="amount" className="block text-xl font-medium mb-2 text-[#00FF8C]">
-              Amount of $CUSS to deposit
-            </label>
-            <input
-              type="number"
-              id="amount"
-              value={amount}
-              onChange={(e) => {
-                // Ensure non-negative numbers only
-                const value = e.target.value;
-                if (value === '' || Number(value) >= 0) {
-                  setAmount(value);
-                }
-              }}
-              className={`w-full px-4 py-3 rounded-xl bg-[#0A0A0A] border-2 border-[#2A2A2A] focus:outline-none focus:border-[#00FF8C] text-white transition-colors ${!isConnected && 'opacity-50 cursor-not-allowed'}`}
-              min="0"
-              step="0.01"
-              placeholder="Enter amount"
-              disabled={!isConnected}
-            />
-          </div>
-
-          {/* Instructions */}
-          <div className="mt-8 text-center">
-            <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
-            <ul className="space-y-2 text-[#CCCCCC]">
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
-              </li>
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>{cleanseOddsNum}% chance it gets burned or donated</span>
-              </li>
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Deposit Button */}
-          <button
-            onClick={handleDeposit}
-            disabled={!isConnected || isPending}
-            className={`w-64 h-64 bg-[#1A1A1A] text-[#FF3333] text-2xl font-bold rounded-full 
-            shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
-            border-2 border-[#FF3333] 
-            transition-all duration-300 ease-in-out
-            transform hover:scale-105 active:scale-95 
-            flex items-center justify-center mx-auto 
-            hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
-            group relative
-            before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
-            ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
-          >
-            <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
-              {!isConnected ? 'Connect Wallet' : 
-               isPending ? 'Processing...' :
-               needsApproval ? 'Approve $CUSS' : 'Deposit $CUSS'}
-            </span>
-          </button>
         </div>
       </div>
 
@@ -554,7 +584,7 @@ export default function Home() {
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
-              Oops! Your $CUSS was burned!
+              Oops! Your $CUSS was cleansed!
             </p>
             <button
               onClick={() => {
