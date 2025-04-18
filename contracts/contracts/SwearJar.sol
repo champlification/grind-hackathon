@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.20;
 
-import "@matterlabs/zksync-contracts/contracts/access/Ownable.sol";
-import "@matterlabs/zksync-contracts/contracts/token/ERC20/IERC20.sol";
-import "@matterlabs/zksync-contracts/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@matterlabs/zksync-contracts/contracts/l2-contracts/interfaces/IPaymasterFlow.sol";
+import "@matterlabs/zksync-contracts/contracts/l2-contracts/interfaces/IPaymaster.sol";
+import "@matterlabs/zksync-contracts/contracts/l2-contracts/SystemContractsCaller.sol";
+import "@matterlabs/zksync-contracts/contracts/l2-contracts/L2ContractHelper.sol";
 
 contract SwearJar is Ownable, ReentrancyGuard {
     IERC20 public cussToken;
@@ -269,8 +273,8 @@ contract SwearJar is Ownable, ReentrancyGuard {
     function getContractStats() external view returns (
         uint256 totalDeposited,
         uint256 totalCleansed,
-        uint256 totalMercyGrants,
-        uint256 totalMercyAmount
+        uint256 mercyGrants,
+        uint256 mercyAmount
     ) {
         return (
             totalDeposits,
