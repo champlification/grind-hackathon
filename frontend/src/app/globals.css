@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  --primary-green: #00FF00;
+  --primary-black: #000000;
+  --accent-orange: #FFA500;
+  --accent-pink: #FF69B4;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-[#00FF00] hover:bg-[#00CC00] text-black font-bold py-2 px-4 rounded transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply bg-black text-white border-2 border-[#00FF00] hover:bg-[#00FF00] hover:text-black font-bold py-2 px-4 rounded transition-colors;
+  }
+  
+  .input-primary {
+    @apply bg-gray-800 border-2 border-[#00FF00] focus:border-[#00FF00] focus:ring-2 focus:ring-[#00FF00] rounded-lg px-4 py-2 text-white;
+  }
+} 
