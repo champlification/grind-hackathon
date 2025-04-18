@@ -2,11 +2,58 @@
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useState, useEffect } from 'react';
-import { useAccount, useContractRead, useContractWrite, useWaitForTransaction } from 'wagmi';
+import { useAccount, useReadContract, useWriteContract, useWatchContractEvent, useWaitForTransactionReceipt } from 'wagmi';
+import { SWEAR_JAR_ABI } from '../config/abi';
+import { formatUnits, parseUnits, type Abi } from 'viem';
 
-// TODO: Import actual contract ABI and address
-const SWEAR_JAR_ADDRESS = '0x...'; // Contract address will go here
-const SWEAR_JAR_ABI = []; // Contract ABI will go here
+// Contract configuration
+const SWEAR_JAR_ADDRESS = '0x2D54E36A94Dfe1D089F817455cB35f2a3FFCb7ED';
+const CUSS_TOKEN_ADDRESS = '0xEE5c1bDe4ee7546e7a5104728ae80dC200a00E1c';
+
+// ERC20 ABI for approval
+const ERC20_ABI = [
+  {
+    inputs: [
+      {
+        name: "spender",
+        type: "address"
+      },
+      {
+        name: "amount",
+        type: "uint256"
+      }
+    ],
+    name: "approve",
+    outputs: [{ type: "bool" }],
+    stateMutability: "nonpayable",
+    type: "function"
+  },
+  {
+    inputs: [
+      {
+        name: "owner",
+        type: "address"
+      },
+      {
+        name: "spender",
+        type: "address"
+      }
+    ],
+    name: "allowance",
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+    type: "function"
+  }
+] as const;
+
+// Utility function to format token amounts
+const formatTokenAmount = (amount: bigint | undefined): string => {
+  if (!amount) return '0';
+  return Number(formatUnits(amount, 18)).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  });
+};
 
 export default function Home() {
   const { address, isConnected } = useAccount();
@@ -14,84 +61,251 @@ export default function Home() {
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
+  const [showProcessingPopup, setShowProcessingPopup] = useState(false);
+  const [needsApproval, setNeedsApproval] = useState(true);
   
   // Contract read states
-  const { data: depositedAmount = 0 } = useContractRead({
+  const { data: depositedAmount, refetch: refetchDeposited } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getDeposited',
-    args: [address],
-    watch: true,
-    enabled: !!address,
-  });
+    args: address ? [address] : undefined,
+  }) as { data: bigint | undefined, refetch: () => void };
 
-  const { data: burnedAmount = 0 } = useContractRead({
+  const { data: burnedAmount, refetch: refetchBurned } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
-    functionName: 'getBurned',
-    args: [address],
-    watch: true,
-    enabled: !!address,
-  });
+    functionName: 'getCleansed',
+    args: address ? [address] : undefined,
+  }) as { data: bigint | undefined, refetch: () => void };
 
-  const { data: minWithdrawAmount = 10 } = useContractRead({
+  const { data: minWithdrawAmount } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getMinWithdrawAmount',
-    watch: true,
-  });
+  }) as { data: bigint | undefined };
 
-  const { data: burnOdds = 10 } = useContractRead({
+  const { data: cleanseOdds } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
-    functionName: 'getBurnOdds',
-    watch: true,
-  });
+    functionName: 'getCleanseOdds',
+  }) as { data: bigint | undefined };
+
+  // Convert values for comparison
+  const depositedAmountNum = depositedAmount ?? BigInt(0);
+  const minWithdrawAmountNum = minWithdrawAmount ?? BigInt(0);
+  const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
 
   // Contract write functions
-  const { write: deposit, data: depositData } = useContractWrite({
-    address: SWEAR_JAR_ADDRESS,
-    abi: SWEAR_JAR_ABI,
-    functionName: 'deposit',
+  const { writeContract: deposit, isSuccess: isDepositSuccess, isError: isDepositError, data: depositData } = useWriteContract();
+  const { writeContract: withdraw, isSuccess: isWithdrawSuccess } = useWriteContract();
+  const { writeContract: approve, isSuccess: isApproveSuccess, isLoading: isApproveLoading, data: approveData } = useWriteContract();
+
+  // Check token approval
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: CUSS_TOKEN_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: [address ?? '0x0', SWEAR_JAR_ADDRESS],
   });
 
-  const { write: withdraw, data: withdrawData } = useContractWrite({
-    address: SWEAR_JAR_ADDRESS,
-    abi: SWEAR_JAR_ABI,
-    functionName: 'withdraw',
+  // Watch for approval transaction
+  const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({
+    hash: approveData,
   });
 
-  // Transaction monitoring
-  const { isSuccess: isDepositSuccess, isError: isDepositError } = useWaitForTransaction({
-    hash: depositData?.hash,
+  // Wait for deposit transaction receipt
+  const { isSuccess: isDepositConfirmed } = useWaitForTransactionReceipt({
+    hash: depositData,
   });
 
-  const { isSuccess: isWithdrawSuccess } = useWaitForTransaction({
-    hash: withdrawData?.hash,
-  });
+  // Update approval status when allowance changes or approval confirms
+  useEffect(() => {
+    const checkApproval = async () => {
+      if (!address || !amount || !allowance) {
+        setNeedsApproval(true);
+        return;
+      }
+
+      try {
+        const amountInWei = parseUnits(amount, 18);
+        const currentAllowance = allowance as bigint;
+        console.log('Checking approval:', {
+          allowance: currentAllowance.toString(),
+          required: amountInWei.toString()
+        });
+        setNeedsApproval(currentAllowance < amountInWei);
+      } catch (error) {
+        console.error('Error checking approval:', error);
+        setNeedsApproval(true);
+      }
+    };
+
+    // Only check approval if we have all required data
+    if (address && amount && allowance !== undefined) {
+      checkApproval();
+    }
+  }, [address, allowance, amount, isApproveConfirmed]);
+
+  // Refresh allowance after successful approval
+  useEffect(() => {
+    if (isApproveConfirmed) {
+      refetchAllowance?.();
+    }
+  }, [isApproveConfirmed, refetchAllowance]);
 
   // Handle deposit success/failure
   useEffect(() => {
     if (isDepositSuccess) {
-      setShowSuccessPopup(true);
+      setShowProcessingPopup(true);
+      // Don't show other popups here, we'll show them based on the event
+      refetchDeposited?.();
+      refetchBurned?.();
     }
     if (isDepositError) {
+      setShowProcessingPopup(false);
       setShowFailurePopup(true);
     }
-  }, [isDepositSuccess, isDepositError]);
+  }, [isDepositSuccess, isDepositError, refetchDeposited, refetchBurned]);
+
+  // Watch for contract events
+  useWatchContractEvent({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    eventName: 'Deposited',
+    pollingInterval: 1_000, // Poll every second
+    strict: true, // Ensure we get all events
+    onLogs(logs) {
+      console.log('Raw deposit event logs:', logs);
+      
+      if (!logs || logs.length === 0) {
+        console.log('No logs received');
+        return;
+      }
+
+      const event = logs[0];
+      console.log('First event:', event);
+
+      try {
+        // Access event args directly from the log
+        const user = event.args[0] as string; // first arg is user
+        const amount = event.args[1] as bigint; // second arg is amount
+        const wasCleansed = event.args[2] as boolean; // third arg is wasCleansed
+        
+        console.log('Parsed event args:', {
+          user,
+          amount: amount.toString(),
+          wasCleansed
+        });
+        
+        // Check if this deposit was for the current user
+        if (user?.toLowerCase() === address?.toLowerCase()) {
+          console.log('Event is for current user');
+          
+          // Hide processing popup and show appropriate result
+          setShowProcessingPopup(false);
+          if (wasCleansed) {
+            console.log('Tokens were cleansed, showing failure popup');
+            setShowFailurePopup(true);
+            setShowSuccessPopup(false);
+          } else {
+            console.log('Tokens were not cleansed, showing success popup');
+            setShowSuccessPopup(true);
+            setShowFailurePopup(false);
+          }
+          
+          // Refresh stats
+          refetchDeposited?.();
+          refetchBurned?.();
+        } else {
+          console.log('Event is not for current user');
+        }
+      } catch (error) {
+        console.error('Error processing event:', error);
+        // If there's an error, at least hide the processing popup
+        setShowProcessingPopup(false);
+      }
+    },
+  });
+
+  // Handle deposit confirmation
+  useEffect(() => {
+    if (isDepositConfirmed) {
+      console.log('Deposit transaction confirmed, waiting for event...');
+      // The event handler will handle showing the appropriate popup
+    }
+  }, [isDepositConfirmed]);
+
+  // Add a timeout to hide processing popup if no event is received
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (showProcessingPopup) {
+      timeoutId = setTimeout(() => {
+        console.log('No event received after 30 seconds, hiding processing popup');
+        setShowProcessingPopup(false);
+      }, 30000); // 30 seconds timeout
+    }
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [showProcessingPopup]);
 
   // Handle withdraw success
   useEffect(() => {
     if (isWithdrawSuccess) {
       setShowWithdrawSuccessPopup(true);
+      // Refresh user stats after withdrawal
+      refetchDeposited?.();
+      refetchBurned?.();
     }
-  }, [isWithdrawSuccess]);
+  }, [isWithdrawSuccess, refetchDeposited, refetchBurned]);
+
+  const handleApprove = async () => {
+    if (!isConnected || !address) return;
+    try {
+      const amountInWei = parseUnits(amount, 18);
+      console.log('Approving:', {
+        token: CUSS_TOKEN_ADDRESS,
+        spender: SWEAR_JAR_ADDRESS,
+        amount: amountInWei.toString()
+      });
+      await approve({
+        address: CUSS_TOKEN_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: 'approve',
+        args: [SWEAR_JAR_ADDRESS, amountInWei],
+      });
+    } catch (error) {
+      console.error('Approval failed:', error);
+    }
+  };
 
   const handleDeposit = async () => {
-    if (!isConnected) return;
+    if (!isConnected || !address) return;
+    
+    if (needsApproval) {
+      console.log('Needs approval, handling approve...');
+      await handleApprove();
+      return;
+    }
+
     try {
-      deposit({
-        args: [amount],
+      const parsedAmount = parseFloat(amount);
+      if (isNaN(parsedAmount)) {
+        console.error('Invalid amount');
+        return;
+      }
+      
+      const amountInWei = parseUnits(amount, 18);
+      console.log('Depositing:', amountInWei.toString());
+      
+      await deposit({
+        address: SWEAR_JAR_ADDRESS,
+        abi: SWEAR_JAR_ABI,
+        functionName: 'deposit',
+        args: [amountInWei],
       });
     } catch (error) {
       console.error('Deposit failed:', error);
@@ -101,7 +315,11 @@ export default function Home() {
   const handleWithdraw = async () => {
     if (!isConnected) return;
     try {
-      withdraw();
+      await withdraw({
+        address: SWEAR_JAR_ADDRESS,
+        abi: SWEAR_JAR_ABI,
+        functionName: 'withdraw',
+      });
     } catch (error) {
       console.error('Withdrawal failed:', error);
     }
@@ -129,29 +347,33 @@ export default function Home() {
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{isConnected ? depositedAmount?.toString() : '0'}</span>
-                <span className="ml-2 text-[#00FF8C]">$GRIND</span>
+                <span className="text-2xl font-bold text-white">
+                  {isConnected ? formatTokenAmount(depositedAmount) : '0'}
+                </span>
+                <span className="ml-2 text-[#00FF8C]">$CUSS</span>
               </div>
               <div className="mt-2 text-xs text-[#CCCCCC]">
                 {!isConnected ? (
                   "Connect wallet to deposit"
-                ) : depositedAmount >= minWithdrawAmount ? (
+                ) : depositedAmountNum >= minWithdrawAmountNum ? (
                   <button
                     onClick={handleWithdraw}
                     className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
                   >
-                    Withdraw $GRIND
+                    Withdraw $CUSS
                   </button>
                 ) : (
-                  `Need ${(minWithdrawAmount - depositedAmount)?.toString()} more to withdraw`
+                  `Need ${formatTokenAmount(minWithdrawAmountNum - depositedAmountNum)} more to withdraw`
                 )}
               </div>
             </div>
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Burned</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{isConnected ? burnedAmount?.toString() : '0'}</span>
-                <span className="ml-2 text-[#FF3333]">$GRIND</span>
+                <span className="text-2xl font-bold text-white">
+                  {isConnected ? formatTokenAmount(burnedAmount) : '0'}
+                </span>
+                <span className="ml-2 text-[#FF3333]">$CUSS</span>
               </div>
               <div className="mt-2 text-xs text-[#FF3333]">
                 Gone forever
@@ -162,35 +384,42 @@ export default function Home() {
           {/* Amount Input */}
           <div className="text-center">
             <label htmlFor="amount" className="block text-xl font-medium mb-2 text-[#00FF8C]">
-              Amount of $GRIND to deposit
+              Amount of $CUSS to deposit
             </label>
             <input
               type="number"
               id="amount"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                // Ensure non-negative numbers only
+                const value = e.target.value;
+                if (value === '' || Number(value) >= 0) {
+                  setAmount(value);
+                }
+              }}
               className={`w-full px-4 py-3 rounded-xl bg-[#0A0A0A] border-2 border-[#2A2A2A] focus:outline-none focus:border-[#00FF8C] text-white transition-colors ${!isConnected && 'opacity-50 cursor-not-allowed'}`}
-              min="1"
-              step="1"
+              min="0"
+              step="0.01"
+              placeholder="Enter amount"
               disabled={!isConnected}
             />
           </div>
 
           {/* Instructions */}
           <div className="mt-8 text-center">
-            <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $GRIND tokens:</p>
+            <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
             <ul className="space-y-2 text-[#CCCCCC]">
               <li className="flex items-center justify-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>{100 - burnOdds}% chance it goes into your jar</span>
+                <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
               </li>
               <li className="flex items-center justify-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>{burnOdds}% chance it gets burned or donated</span>
+                <span>{cleanseOddsNum}% chance it gets burned or donated</span>
               </li>
               <li className="flex items-center justify-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>Withdraw when you reach {minWithdrawAmount?.toString()} $GRIND</span>
+                <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
               </li>
             </ul>
           </div>
@@ -198,7 +427,7 @@ export default function Home() {
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            disabled={!isConnected}
+            disabled={!isConnected || isApproveLoading}
             className={`w-64 h-64 bg-[#1A1A1A] text-[#FF3333] text-2xl font-bold rounded-full 
             shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
             border-2 border-[#FF3333] 
@@ -208,14 +437,34 @@ export default function Home() {
             hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
             group relative
             before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
-            ${!isConnected && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
+            ${(!isConnected || isApproveLoading) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
           >
             <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
-              {isConnected ? 'Deposit $GRIND' : 'Connect Wallet'}
+              {!isConnected ? 'Connect Wallet' : 
+               isApproveLoading ? 'Approving...' :
+               needsApproval ? 'Approve $CUSS' : 'Deposit $CUSS'}
             </span>
           </button>
         </div>
       </div>
+
+      {/* Processing Popup */}
+      {showProcessingPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
+            <img
+              src="/static/GrindRain01_GBG.gif"
+              alt="Processing"
+              className="mx-auto mb-4 rounded-xl"
+            />
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Processing your deposit...</p>
+            <p className="text-[#CCCCCC] mb-4">Waiting for transaction confirmation</p>
+            <div className="animate-pulse">
+              <div className="h-2 w-2 bg-[#00FF8C] rounded-full mx-auto"></div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success Popup */}
       {showSuccessPopup && (
@@ -226,7 +475,7 @@ export default function Home() {
               alt="Success Hamster"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Your $GRIND was added to the jar!</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Your $CUSS was added to the jar!</p>
             <button
               onClick={() => setShowSuccessPopup(false)}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
@@ -246,7 +495,7 @@ export default function Home() {
               alt="Grind Bozo"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Oops! Your $GRIND was burned!</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Oops! Your $CUSS was burned!</p>
             <button
               onClick={() => setShowFailurePopup(false)}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
@@ -266,7 +515,7 @@ export default function Home() {
               alt="Money Rain Hamster"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $GRIND!</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $CUSS!</p>
             <button
               onClick={() => setShowWithdrawSuccessPopup(false)}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
