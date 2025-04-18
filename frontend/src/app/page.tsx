@@ -2,49 +2,11 @@
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useState, useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWatchContractEvent, useWaitForTransactionReceipt } from 'wagmi';
-import { SWEAR_JAR_ABI } from '../config/abi';
-import { formatUnits, parseUnits, type Abi } from 'viem';
-
-// Contract configuration
-const SWEAR_JAR_ADDRESS = '0x2D54E36A94Dfe1D089F817455cB35f2a3FFCb7ED';
-const CUSS_TOKEN_ADDRESS = '0xEE5c1bDe4ee7546e7a5104728ae80dC200a00E1c';
-
-// ERC20 ABI for approval
-const ERC20_ABI = [
-  {
-    inputs: [
-      {
-        name: "spender",
-        type: "address"
-      },
-      {
-        name: "amount",
-        type: "uint256"
-      }
-    ],
-    name: "approve",
-    outputs: [{ type: "bool" }],
-    stateMutability: "nonpayable",
-    type: "function"
-  },
-  {
-    inputs: [
-      {
-        name: "owner",
-        type: "address"
-      },
-      {
-        name: "spender",
-        type: "address"
-      }
-    ],
-    name: "allowance",
-    outputs: [{ type: "uint256" }],
-    stateMutability: "view",
-    type: "function"
-  }
-] as const;
+import { useAccount, useReadContract, useWriteContract, useWatchContractEvent, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
+import { formatUnits, parseUnits, decodeEventLog } from 'viem';
+import { SWEAR_JAR_ADDRESS, CUSS_TOKEN_ADDRESS } from '../config/addresses';
+import { SWEAR_JAR_ABI } from '../config/abis';
+import { ERC20_ABI } from '../config/abis';
 
 // Utility function to format token amounts
 const formatTokenAmount = (amount: bigint | undefined): string => {
@@ -62,7 +24,9 @@ export default function Home() {
   const [showFailurePopup, setShowFailurePopup] = useState(false);
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
   const [showProcessingPopup, setShowProcessingPopup] = useState(false);
+  const [showBurnedPopup, setShowBurnedPopup] = useState(false);
   const [needsApproval, setNeedsApproval] = useState(true);
+  const [isPending, setIsPending] = useState(false);
   
   // Contract read states
   const { data: depositedAmount, refetch: refetchDeposited } = useReadContract({
@@ -70,26 +34,26 @@ export default function Home() {
     abi: SWEAR_JAR_ABI,
     functionName: 'getDeposited',
     args: address ? [address] : undefined,
-  }) as { data: bigint | undefined, refetch: () => void };
+  });
 
   const { data: burnedAmount, refetch: refetchBurned } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getCleansed',
     args: address ? [address] : undefined,
-  }) as { data: bigint | undefined, refetch: () => void };
+  });
 
   const { data: minWithdrawAmount } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getMinWithdrawAmount',
-  }) as { data: bigint | undefined };
+  });
 
   const { data: cleanseOdds } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getCleanseOdds',
-  }) as { data: bigint | undefined };
+  });
 
   // Convert values for comparison
   const depositedAmountNum = depositedAmount ?? BigInt(0);
@@ -97,9 +61,9 @@ export default function Home() {
   const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
 
   // Contract write functions
-  const { writeContract: deposit, isSuccess: isDepositSuccess, isError: isDepositError, data: depositData } = useWriteContract();
-  const { writeContract: withdraw, isSuccess: isWithdrawSuccess } = useWriteContract();
-  const { writeContract: approve, isSuccess: isApproveSuccess, isLoading: isApproveLoading, data: approveData } = useWriteContract();
+  const { writeContract: deposit, data: depositData, status: depositStatus } = useWriteContract();
+  const { writeContract: withdraw, status: withdrawStatus } = useWriteContract();
+  const { writeContract: approve, data: approveData, status: approveStatus } = useWriteContract();
 
   // Check token approval
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -119,17 +83,19 @@ export default function Home() {
     hash: depositData,
   });
 
+  const publicClient = usePublicClient();
+
   // Update approval status when allowance changes or approval confirms
   useEffect(() => {
     const checkApproval = async () => {
-      if (!address || !amount || !allowance) {
+      if (!address || !amount || allowance === null || allowance === undefined) {
         setNeedsApproval(true);
         return;
       }
 
       try {
         const amountInWei = parseUnits(amount, 18);
-        const currentAllowance = allowance as bigint;
+        const currentAllowance = BigInt(allowance.toString());
         console.log('Checking approval:', {
           allowance: currentAllowance.toString(),
           required: amountInWei.toString()
@@ -142,7 +108,7 @@ export default function Home() {
     };
 
     // Only check approval if we have all required data
-    if (address && amount && allowance !== undefined) {
+    if (address && amount && allowance !== undefined && allowance !== null) {
       checkApproval();
     }
   }, [address, allowance, amount, isApproveConfirmed]);
@@ -156,85 +122,103 @@ export default function Home() {
 
   // Handle deposit success/failure
   useEffect(() => {
-    if (isDepositSuccess) {
+    if (depositStatus === 'success') {
+      console.log('Deposit transaction submitted successfully. Transaction hash:', depositData);
       setShowProcessingPopup(true);
       // Don't show other popups here, we'll show them based on the event
       refetchDeposited?.();
       refetchBurned?.();
     }
-    if (isDepositError) {
+    if (depositStatus === 'error') {
+      console.log('Deposit transaction failed');
       setShowProcessingPopup(false);
       setShowFailurePopup(true);
     }
-  }, [isDepositSuccess, isDepositError, refetchDeposited, refetchBurned]);
-
-  // Watch for contract events
-  useWatchContractEvent({
-    address: SWEAR_JAR_ADDRESS,
-    abi: SWEAR_JAR_ABI,
-    eventName: 'Deposited',
-    pollingInterval: 1_000, // Poll every second
-    strict: true, // Ensure we get all events
-    onLogs(logs) {
-      console.log('Raw deposit event logs:', logs);
-      
-      if (!logs || logs.length === 0) {
-        console.log('No logs received');
-        return;
-      }
-
-      const event = logs[0];
-      console.log('First event:', event);
-
-      try {
-        // Access event args directly from the log
-        const user = event.args[0] as string; // first arg is user
-        const amount = event.args[1] as bigint; // second arg is amount
-        const wasCleansed = event.args[2] as boolean; // third arg is wasCleansed
-        
-        console.log('Parsed event args:', {
-          user,
-          amount: amount.toString(),
-          wasCleansed
-        });
-        
-        // Check if this deposit was for the current user
-        if (user?.toLowerCase() === address?.toLowerCase()) {
-          console.log('Event is for current user');
-          
-          // Hide processing popup and show appropriate result
-          setShowProcessingPopup(false);
-          if (wasCleansed) {
-            console.log('Tokens were cleansed, showing failure popup');
-            setShowFailurePopup(true);
-            setShowSuccessPopup(false);
-          } else {
-            console.log('Tokens were not cleansed, showing success popup');
-            setShowSuccessPopup(true);
-            setShowFailurePopup(false);
-          }
-          
-          // Refresh stats
-          refetchDeposited?.();
-          refetchBurned?.();
-        } else {
-          console.log('Event is not for current user');
-        }
-      } catch (error) {
-        console.error('Error processing event:', error);
-        // If there's an error, at least hide the processing popup
-        setShowProcessingPopup(false);
-      }
-    },
-  });
+  }, [depositStatus, refetchDeposited, refetchBurned, depositData]);
 
   // Handle deposit confirmation
   useEffect(() => {
-    if (isDepositConfirmed) {
-      console.log('Deposit transaction confirmed, waiting for event...');
-      // The event handler will handle showing the appropriate popup
+    if (isDepositConfirmed && depositData && publicClient) {
+      console.log('Deposit transaction confirmed on chain. Hash:', depositData);
+      console.log('Fetching transaction receipt...');
+      
+      const fetchReceipt = async () => {
+        try {
+          const receipt = await publicClient.getTransactionReceipt({ hash: depositData });
+          console.log('Transaction receipt:', receipt);
+
+          // Find relevant events in the logs
+          const logs = receipt.logs.filter(log => 
+            log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
+          );
+
+          if (logs.length === 0) {
+            console.log('No events found in logs');
+            setShowProcessingPopup(false);
+            return;
+          }
+
+          console.log('Found logs:', logs);
+
+          try {
+            // Try to decode each log until we find our event
+            for (const log of logs) {
+              try {
+                const decodedLog = decodeEventLog({
+                  abi: SWEAR_JAR_ABI,
+                  data: log.data,
+                  topics: log.topics,
+                });
+
+                console.log('Decoded log:', decodedLog);
+
+                // Check if this is a Deposited or TokensCleansed event
+                if (decodedLog.eventName === 'Deposited') {
+                  const args = decodedLog.args as {
+                    user: string;
+                    amount: bigint;
+                    wasCleansed: boolean;
+                  };
+
+                  console.log('Deposit event data:', args);
+
+                  // Update UI based on event data
+                  setShowProcessingPopup(false);
+                  if (args.wasCleansed) {
+                    console.log('Tokens were cleansed, showing failure popup');
+                    setShowFailurePopup(true);
+                    setShowSuccessPopup(false);
+                  } else {
+                    console.log('Tokens were not cleansed, showing success popup');
+                    setShowSuccessPopup(true);
+                    setShowFailurePopup(false);
+                  }
+                  break;
+                }
+              } catch (decodeError) {
+                console.log('Could not decode log as Deposited event:', decodeError);
+                // Continue to next log
+              }
+            }
+
+            // Refresh stats regardless of event type
+            refetchDeposited?.();
+            refetchBurned?.();
+
+          } catch (error) {
+            console.error('Error processing logs:', error);
+            setShowProcessingPopup(false);
+          }
+
+        } catch (error) {
+          console.error('Error processing transaction receipt:', error);
+          setShowProcessingPopup(false);
+        }
+      };
+
+      fetchReceipt();
     }
-  }, [isDepositConfirmed]);
+  }, [isDepositConfirmed, depositData, address, publicClient, refetchDeposited, refetchBurned]);
 
   // Add a timeout to hide processing popup if no event is received
   useEffect(() => {
@@ -254,13 +238,22 @@ export default function Home() {
 
   // Handle withdraw success
   useEffect(() => {
-    if (isWithdrawSuccess) {
+    if (withdrawStatus === 'success') {
       setShowWithdrawSuccessPopup(true);
       // Refresh user stats after withdrawal
       refetchDeposited?.();
       refetchBurned?.();
     }
-  }, [isWithdrawSuccess, refetchDeposited, refetchBurned]);
+  }, [withdrawStatus, refetchDeposited, refetchBurned]);
+
+  // Update isPending state based on transaction status
+  useEffect(() => {
+    setIsPending(
+      approveStatus === 'pending' || 
+      depositStatus === 'pending' || 
+      withdrawStatus === 'pending'
+    );
+  }, [approveStatus, depositStatus, withdrawStatus]);
 
   const handleApprove = async () => {
     if (!isConnected || !address) return;
@@ -325,6 +318,10 @@ export default function Home() {
     }
   };
 
+  // Update the minWithdrawAmount comparison
+  const needsMore = depositedAmountNum < minWithdrawAmountNum;
+  const amountNeeded = needsMore ? minWithdrawAmountNum - depositedAmountNum : 0n;
+
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white">
       {/* Background Gradient Overlay */}
@@ -363,7 +360,7 @@ export default function Home() {
                     Withdraw $CUSS
                   </button>
                 ) : (
-                  `Need ${formatTokenAmount(minWithdrawAmountNum - depositedAmountNum)} more to withdraw`
+                  `Need ${formatTokenAmount(amountNeeded)} more to withdraw`
                 )}
               </div>
             </div>
@@ -427,7 +424,7 @@ export default function Home() {
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            disabled={!isConnected || isApproveLoading}
+            disabled={!isConnected || isPending}
             className={`w-64 h-64 bg-[#1A1A1A] text-[#FF3333] text-2xl font-bold rounded-full 
             shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
             border-2 border-[#FF3333] 
@@ -437,11 +434,11 @@ export default function Home() {
             hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
             group relative
             before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
-            ${(!isConnected || isApproveLoading) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
+            ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
           >
             <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
               {!isConnected ? 'Connect Wallet' : 
-               isApproveLoading ? 'Approving...' :
+               isPending ? 'Processing...' :
                needsApproval ? 'Approve $CUSS' : 'Deposit $CUSS'}
             </span>
           </button>
@@ -475,9 +472,15 @@ export default function Home() {
               alt="Success Hamster"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Your $CUSS was added to the jar!</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
+              Your $CUSS was added to the jar!
+            </p>
             <button
-              onClick={() => setShowSuccessPopup(false)}
+              onClick={() => {
+                setShowSuccessPopup(false);
+                // Refetch allowance to get the latest value
+                refetchAllowance?.();
+              }}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
@@ -495,9 +498,15 @@ export default function Home() {
               alt="Grind Bozo"
               className="mx-auto mb-4 rounded-xl"
             />
-            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Oops! Your $CUSS was burned!</p>
+            <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
+              Oops! Your $CUSS was burned!
+            </p>
             <button
-              onClick={() => setShowFailurePopup(false)}
+              onClick={() => {
+                setShowFailurePopup(false);
+                // Refetch allowance to get the latest value
+                refetchAllowance?.();
+              }}
               className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
             >
               Close
