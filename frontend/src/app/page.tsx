@@ -19,18 +19,18 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-black text-white">
+    <main className="min-h-screen bg-gradient-to-b from-[#003C2C] via-[#004E3A] via-40% to-[#006B4F] text-black">
       {/* Wallet Connect Button */}
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-6 right-6 p-2">
         <ConnectButton />
       </div>
 
       {/* Main Content */}
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <div className="w-full max-w-md space-y-8">
+        <div className="w-full max-w-md space-y-8 bg-white rounded-2xl p-8 shadow-xl">
           {/* Amount Input */}
           <div className="text-center">
-            <label htmlFor="amount" className="block text-lg font-medium mb-2">
+            <label htmlFor="amount" className="block text-lg font-medium mb-2 text-[#004D40]">
               Amount of $GRIND to deposit
             </label>
             <input
@@ -38,7 +38,7 @@ export default function Home() {
               id="amount"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-gray-800 border border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-2 rounded-lg bg-white border-2 border-[#004D40] focus:outline-none focus:ring-2 focus:ring-[#004D40] text-[#004D40]"
               min="1"
               step="1"
             />
@@ -47,14 +47,14 @@ export default function Home() {
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
-            className="w-full py-3 px-4 bg-green-500 hover:bg-green-600 text-black font-bold rounded-lg transition-colors"
+            className="w-64 h-64 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-2xl font-bold rounded-full shadow-lg transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center mx-auto"
           >
             Deposit $GRIND
           </button>
 
           {/* Instructions */}
-          <div className="mt-8 text-center text-gray-400">
-            <p className="mb-2">When you swear, deposit $GRIND tokens:</p>
+          <div className="mt-8 text-center text-[#004D40]">
+            <p className="mb-2 font-medium">When you swear, deposit $GRIND tokens:</p>
             <ul className="list-disc list-inside space-y-1">
               <li>90% chance it goes into your jar</li>
               <li>10% chance it gets burned or donated</li>
@@ -66,7 +66,7 @@ export default function Home() {
 
       {/* Success Popup */}
       {showSuccessPopup && (
-        <div className="fixed inset-0 bg-green-500 bg-opacity-90 flex items-center justify-center">
+        <div className="fixed inset-0 bg-[#00FF8C] bg-opacity-90 flex items-center justify-center">
           <div className="text-center">
             <img
               src="/static/hamster-dance.gif"
@@ -75,7 +75,7 @@ export default function Home() {
             />
             <button
               onClick={() => setShowSuccessPopup(false)}
-              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
+              className="px-4 py-2 bg-[#004D40] text-[#00FF8C] rounded-lg hover:bg-[#003D30]"
             >
               Close
             </button>
@@ -95,7 +95,7 @@ export default function Home() {
             <p className="text-2xl font-bold mb-4">Oops! Your $GRIND was burned!</p>
             <button
               onClick={() => setShowFailurePopup(false)}
-              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
+              className="px-4 py-2 bg-[#004D40] text-[#00FF8C] rounded-lg hover:bg-[#003D30]"
             >
               Close
             </button>

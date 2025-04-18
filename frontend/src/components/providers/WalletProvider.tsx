@@ -63,11 +63,24 @@ function BaseWalletProvider({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
         <RainbowKitProvider
-          theme={darkTheme({
-            accentColor: '#00FF00', // Primary color from your Tailwind config
-            accentColorForeground: 'white',
-            borderRadius: 'medium',
-          })}
+          theme={{
+            ...darkTheme(),
+            colors: {
+              ...darkTheme().colors,
+              accentColor: '#004E3A',
+              accentColorForeground: 'white',
+              connectButtonBackground: '#004E3A',
+              connectButtonInnerBackground: '#003C2C',
+            },
+            radii: {
+              ...darkTheme().radii,
+              connectButton: '9999px'
+            },
+            fonts: {
+              ...darkTheme().fonts,
+              body: 'inherit'
+            }
+          }}
         >
           {children}
         </RainbowKitProvider>
