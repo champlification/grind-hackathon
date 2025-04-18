@@ -1,13 +1,24 @@
 {
-  "name": "grind-hackathon",
+  "name": "swear-jar",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "SwearJar smart contract for Abstract Chain",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "compile": "hardhat compile --network abstractTestnet",
+    "test": "hardhat test",
+    "deploy": "hardhat deploy-zksync --script scripts/deploy.ts --network abstractTestnet",
+    "verify": "hardhat verify --network abstractTestnet"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.8.1"
+  "dependencies": {
+    "@matterlabs/zksync-contracts": "^0.1.0",
+    "zksync-ethers": "^6.0.0",
+    "ethers": "^6.0.0"
+  },
+  "devDependencies": {
+    "@matterlabs/hardhat-zksync": "^1.3.1",
+    "@types/node": "^20.11.19",
+    "dotenv": "^16.4.4",
+    "hardhat": "^2.19.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
 }

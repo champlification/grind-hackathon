@@ -1,41 +1,110 @@
 'use client';
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useState, useEffect } from 'react';
+import { useAccount, useContractRead, useContractWrite, useWaitForTransaction } from 'wagmi';
+
+// TODO: Import actual contract ABI and address
+const SWEAR_JAR_ADDRESS = '0x...'; // Contract address will go here
+const SWEAR_JAR_ABI = []; // Contract ABI will go here
 
 export default function Home() {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState('1');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
   
-  // Mock state for contract values
-  const [depositedAmount, setDepositedAmount] = useState(0);
-  const [burnedAmount, setBurnedAmount] = useState(0);
-  const MOCK_MINIMUM_WITHDRAWAL = 10; // Mock minimum amount needed to withdraw
+  // Contract read states
+  const { data: depositedAmount = 0 } = useContractRead({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getDeposited',
+    args: [address],
+    watch: true,
+    enabled: !!address,
+  });
+
+  const { data: burnedAmount = 0 } = useContractRead({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getBurned',
+    args: [address],
+    watch: true,
+    enabled: !!address,
+  });
+
+  const { data: minWithdrawAmount = 10 } = useContractRead({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getMinWithdrawAmount',
+    watch: true,
+  });
+
+  const { data: burnOdds = 10 } = useContractRead({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getBurnOdds',
+    watch: true,
+  });
+
+  // Contract write functions
+  const { write: deposit, data: depositData } = useContractWrite({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'deposit',
+  });
+
+  const { write: withdraw, data: withdrawData } = useContractWrite({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'withdraw',
+  });
+
+  // Transaction monitoring
+  const { isSuccess: isDepositSuccess, isError: isDepositError } = useWaitForTransaction({
+    hash: depositData?.hash,
+  });
+
+  const { isSuccess: isWithdrawSuccess } = useWaitForTransaction({
+    hash: withdrawData?.hash,
+  });
+
+  // Handle deposit success/failure
+  useEffect(() => {
+    if (isDepositSuccess) {
+      setShowSuccessPopup(true);
+    }
+    if (isDepositError) {
+      setShowFailurePopup(true);
+    }
+  }, [isDepositSuccess, isDepositError]);
+
+  // Handle withdraw success
+  useEffect(() => {
+    if (isWithdrawSuccess) {
+      setShowWithdrawSuccessPopup(true);
+    }
+  }, [isWithdrawSuccess]);
 
   const handleDeposit = async () => {
     if (!isConnected) return;
-    // TODO: Implement contract interaction
-    const random = Math.random();
-    const amountNum = parseFloat(amount);
-    
-    if (random < 0.1) {
-      setBurnedAmount(prev => prev + amountNum);
-      setShowFailurePopup(true);
-    } else {
-      setDepositedAmount(prev => prev + amountNum);
-      setShowSuccessPopup(true);
+    try {
+      deposit({
+        args: [amount],
+      });
+    } catch (error) {
+      console.error('Deposit failed:', error);
     }
   };
 
   const handleWithdraw = async () => {
     if (!isConnected) return;
-    // TODO: Implement contract withdrawal
-    setDepositedAmount(0);
-    setShowWithdrawSuccessPopup(true);
+    try {
+      withdraw();
+    } catch (error) {
+      console.error('Withdrawal failed:', error);
+    }
   };
 
   return (
@@ -60,13 +129,13 @@ export default function Home() {
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Deposited</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{isConnected ? depositedAmount : '0'}</span>
+                <span className="text-2xl font-bold text-white">{isConnected ? depositedAmount?.toString() : '0'}</span>
                 <span className="ml-2 text-[#00FF8C]">$GRIND</span>
               </div>
               <div className="mt-2 text-xs text-[#CCCCCC]">
                 {!isConnected ? (
                   "Connect wallet to deposit"
-                ) : depositedAmount >= MOCK_MINIMUM_WITHDRAWAL ? (
+                ) : depositedAmount >= minWithdrawAmount ? (
                   <button
                     onClick={handleWithdraw}
                     className="w-full mt-2 px-4 py-2 bg-[#00FF8C] hover:bg-[#00CC70] text-black font-bold rounded-lg transition-colors"
@@ -74,14 +143,14 @@ export default function Home() {
                     Withdraw $GRIND
                   </button>
                 ) : (
-                  `Need ${MOCK_MINIMUM_WITHDRAWAL - depositedAmount} more to withdraw`
+                  `Need ${(minWithdrawAmount - depositedAmount)?.toString()} more to withdraw`
                 )}
               </div>
             </div>
             <div className="bg-[#0A0A0A] p-4 rounded-xl border border-[#2A2A2A]">
               <div className="text-sm text-[#CCCCCC] mb-1">Burned</div>
               <div className="flex items-baseline">
-                <span className="text-2xl font-bold text-white">{isConnected ? burnedAmount : '0'}</span>
+                <span className="text-2xl font-bold text-white">{isConnected ? burnedAmount?.toString() : '0'}</span>
                 <span className="ml-2 text-[#FF3333]">$GRIND</span>
               </div>
               <div className="mt-2 text-xs text-[#FF3333]">
@@ -107,6 +176,25 @@ export default function Home() {
             />
           </div>
 
+          {/* Instructions */}
+          <div className="mt-8 text-center">
+            <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $GRIND tokens:</p>
+            <ul className="space-y-2 text-[#CCCCCC]">
+              <li className="flex items-center justify-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                <span>{100 - burnOdds}% chance it goes into your jar</span>
+              </li>
+              <li className="flex items-center justify-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                <span>{burnOdds}% chance it gets burned or donated</span>
+              </li>
+              <li className="flex items-center justify-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
+                <span>Withdraw when you reach {minWithdrawAmount?.toString()} $GRIND</span>
+              </li>
+            </ul>
+          </div>
+
           {/* Deposit Button */}
           <button
             onClick={handleDeposit}
@@ -126,25 +214,6 @@ export default function Home() {
               {isConnected ? 'Deposit $GRIND' : 'Connect Wallet'}
             </span>
           </button>
-
-          {/* Instructions */}
-          <div className="mt-8 text-center">
-            <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $GRIND tokens:</p>
-            <ul className="space-y-2 text-[#CCCCCC]">
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>90% chance it goes into your jar</span>
-              </li>
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>10% chance it gets burned or donated</span>
-              </li>
-              <li className="flex items-center justify-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                <span>Withdraw when you reach the minimum amount</span>
-              </li>
-            </ul>
-          </div>
         </div>
       </div>
 
