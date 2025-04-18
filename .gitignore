@@ -134,3 +134,13 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Hardhat
+cache-zk/
+artifacts-zk/
+deployments-zk/
+ignition/
+
+# IDE
+.vscode/
+.idea/
