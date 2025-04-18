@@ -86,9 +86,13 @@ export default function Home() {
   const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
 
   // Contract write functions
-  const { writeContract: deposit, data: depositData, status: depositStatus } = useWriteContract();
-  const { writeContract: withdraw, data: withdrawData, status: withdrawStatus } = useWriteContract();
-  const { writeContract: approve, data: approveData, status: approveStatus } = useWriteContract();
+  const { writeContractAsync: approve } = useWriteContract();
+  const { writeContractAsync: deposit } = useWriteContract();
+  const { writeContractAsync: withdraw } = useWriteContract();
+  const [depositStatus, setDepositStatus] = useState('idle');
+  const [withdrawStatus, setWithdrawStatus] = useState('idle');
+  const [approveStatus, setApproveStatus] = useState('idle');
+  const [currentTxHash, setCurrentTxHash] = useState<`0x${string}` | undefined>(undefined);
 
   // Check token approval
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -98,14 +102,9 @@ export default function Home() {
     args: [address ?? '0x0', SWEAR_JAR_ADDRESS],
   });
 
-  // Watch for approval transaction
-  const { isSuccess: isApproveConfirmed } = useWaitForTransactionReceipt({
-    hash: approveData,
-  });
-
-  // Wait for deposit transaction receipt
-  const { isSuccess: isDepositConfirmed } = useWaitForTransactionReceipt({
-    hash: depositData,
+  // Wait for transaction receipt
+  const { isSuccess: isTransactionConfirmed } = useWaitForTransactionReceipt({
+    hash: currentTxHash,
   });
 
   const publicClient = usePublicClient();
@@ -136,41 +135,23 @@ export default function Home() {
     if (address && amount && allowance !== undefined && allowance !== null) {
       checkApproval();
     }
-  }, [address, allowance, amount, isApproveConfirmed]);
+  }, [address, allowance, amount, isTransactionConfirmed]);
 
   // Refresh allowance after successful approval
   useEffect(() => {
-    if (isApproveConfirmed) {
+    if (isTransactionConfirmed) {
       refetchAllowance?.();
     }
-  }, [isApproveConfirmed, refetchAllowance]);
+  }, [isTransactionConfirmed, refetchAllowance]);
 
-  // Handle deposit success/failure
+  // Watch for transaction confirmation
   useEffect(() => {
-    if (depositStatus === 'success') {
-      console.log('Deposit transaction submitted successfully. Transaction hash:', depositData);
-      setShowProcessingPopup(true);
-      // Don't show other popups here, we'll show them based on the event
-      refetchDeposited?.();
-      refetchBurned?.();
-    }
-    if (depositStatus === 'error') {
-      console.log('Deposit transaction failed');
-      setShowProcessingPopup(false);
-      setShowFailurePopup(true);
-    }
-  }, [depositStatus, refetchDeposited, refetchBurned, depositData]);
-
-  // Handle deposit confirmation
-  useEffect(() => {
-    if (isDepositConfirmed && depositData && publicClient) {
-      console.log('Deposit transaction confirmed on chain. Hash:', depositData);
-      console.log('Fetching transaction receipt...');
-      
+    if (isTransactionConfirmed && currentTxHash && publicClient) {
       const fetchReceipt = async () => {
         try {
-          const receipt = await publicClient.getTransactionReceipt({ hash: depositData });
-          console.log('Transaction receipt:', receipt);
+          const receipt = await publicClient.getTransactionReceipt({ 
+            hash: currentTxHash 
+          });
 
           // Find relevant events in the logs
           const logs = receipt.logs.filter(log => 
@@ -183,67 +164,57 @@ export default function Home() {
             return;
           }
 
-          console.log('Found logs:', logs);
+          // Try to decode each log
+          for (const log of logs) {
+            try {
+              const decodedLog = decodeEventLog({
+                abi: SWEAR_JAR_ABI,
+                data: log.data,
+                topics: log.topics,
+              });
 
-          try {
-            // Try to decode each log until we find our event
-            for (const log of logs) {
-              try {
-                const decodedLog = decodeEventLog({
-                  abi: SWEAR_JAR_ABI,
-                  data: log.data,
-                  topics: log.topics,
-                });
+              if (decodedLog.eventName === 'Deposited') {
+                const args = decodedLog.args as {
+                  user: string;
+                  amount: bigint;
+                  wasCleansed: boolean;
+                };
 
-                console.log('Decoded log:', decodedLog);
-
-                // Check if this is a Deposited or TokensCleansed event
-                if (decodedLog.eventName === 'Deposited') {
-                  const args = decodedLog.args as {
-                    user: string;
-                    amount: bigint;
-                    wasCleansed: boolean;
-                  };
-
-                  console.log('Deposit event data:', args);
-
-                  // Update UI based on event data
-                  setShowProcessingPopup(false);
-                  if (args.wasCleansed) {
-                    console.log('Tokens were cleansed, showing failure popup');
-                    setShowFailurePopup(true);
-                    setShowSuccessPopup(false);
-                  } else {
-                    console.log('Tokens were not cleansed, showing success popup');
-                    setShowSuccessPopup(true);
-                    setShowFailurePopup(false);
-                  }
-                  break;
+                setShowProcessingPopup(false);
+                if (args.wasCleansed) {
+                  setShowFailurePopup(true);
+                  setShowSuccessPopup(false);
+                } else {
+                  setShowSuccessPopup(true);
+                  setShowFailurePopup(false);
                 }
-              } catch (decodeError) {
-                console.log('Could not decode log as Deposited event:', decodeError);
-                // Continue to next log
+                break;
               }
+
+              if (decodedLog.eventName === 'Withdrawn') {
+                setShowProcessingPopup(false);
+                setShowWithdrawSuccessPopup(true);
+                break;
+              }
+            } catch (error) {
+              console.error('Error decoding log:', error);
             }
-
-            // Refresh stats regardless of event type
-            refetchDeposited?.();
-            refetchBurned?.();
-
-          } catch (error) {
-            console.error('Error processing logs:', error);
-            setShowProcessingPopup(false);
           }
 
+          // Refresh stats
+          refetchDeposited?.();
+          refetchBurned?.();
+          refetchAllowance?.();
+
         } catch (error) {
-          console.error('Error processing transaction receipt:', error);
+          console.error('Error processing receipt:', error);
           setShowProcessingPopup(false);
         }
       };
 
       fetchReceipt();
     }
-  }, [isDepositConfirmed, depositData, address, publicClient, refetchDeposited, refetchBurned]);
+  }, [isTransactionConfirmed, currentTxHash, publicClient, refetchDeposited, refetchBurned, refetchAllowance]);
 
   // Add a timeout to hide processing popup if no event is received
   useEffect(() => {
@@ -261,71 +232,6 @@ export default function Home() {
     };
   }, [showProcessingPopup]);
 
-  // Handle withdraw success
-  useEffect(() => {
-    if (withdrawStatus === 'success') {
-      console.log('Withdrawal transaction submitted successfully');
-      setShowProcessingPopup(true);
-    }
-  }, [withdrawStatus]);
-
-  // Handle withdraw confirmation
-  const { isSuccess: isWithdrawConfirmed, data: withdrawReceiptData } = useWaitForTransactionReceipt({
-    hash: withdrawData,
-  });
-
-  // Handle withdraw confirmation
-  useEffect(() => {
-    if (isWithdrawConfirmed && withdrawData && publicClient) {
-      console.log('Withdraw transaction confirmed on chain. Hash:', withdrawData);
-      
-      const fetchReceipt = async () => {
-        try {
-          const receipt = await publicClient.getTransactionReceipt({ hash: withdrawData });
-          console.log('Withdraw receipt:', receipt);
-
-          // Find Withdrawn event in logs
-          const withdrawLog = receipt.logs.find(log => 
-            log.address.toLowerCase() === SWEAR_JAR_ADDRESS.toLowerCase()
-          );
-
-          if (withdrawLog) {
-            try {
-              const decodedLog = decodeEventLog({
-                abi: SWEAR_JAR_ABI,
-                data: withdrawLog.data,
-                topics: withdrawLog.topics,
-              });
-
-              console.log('Decoded withdraw log:', decodedLog);
-
-              if (decodedLog.eventName === 'Withdrawn') {
-                // Update UI
-                setShowProcessingPopup(false);
-                setShowWithdrawSuccessPopup(true);
-                
-                // Refresh stats
-                refetchDeposited?.();
-                refetchBurned?.();
-              }
-            } catch (decodeError) {
-              console.error('Error decoding withdraw event:', decodeError);
-            }
-          }
-
-          // Even if we couldn't decode the event, still hide processing
-          setShowProcessingPopup(false);
-
-        } catch (error) {
-          console.error('Error processing withdraw receipt:', error);
-          setShowProcessingPopup(false);
-        }
-      };
-
-      fetchReceipt();
-    }
-  }, [isWithdrawConfirmed, withdrawData, publicClient, refetchDeposited, refetchBurned]);
-
   // Update isPending state based on transaction status
   useEffect(() => {
     setIsPending(
@@ -335,34 +241,8 @@ export default function Home() {
     );
   }, [approveStatus, depositStatus, withdrawStatus]);
 
-  const handleApprove = async () => {
-    if (!isConnected || !address) return;
-    try {
-      const amountInWei = parseUnits(amount, 18);
-      console.log('Approving:', {
-        token: CUSS_TOKEN_ADDRESS,
-        spender: SWEAR_JAR_ADDRESS,
-        amount: amountInWei.toString()
-      });
-      await approve({
-        address: CUSS_TOKEN_ADDRESS,
-        abi: ERC20_ABI,
-        functionName: 'approve',
-        args: [SWEAR_JAR_ADDRESS, amountInWei],
-      });
-    } catch (error) {
-      console.error('Approval failed:', error);
-    }
-  };
-
   const handleDeposit = async () => {
-    if (!isConnected || !address) return;
-    
-    if (needsApproval) {
-      console.log('Needs approval, handling approve...');
-      await handleApprove();
-      return;
-    }
+    if (!isConnected || !address || !publicClient) return;
 
     try {
       const parsedAmount = parseFloat(amount);
@@ -372,29 +252,118 @@ export default function Home() {
       }
       
       const amountInWei = parseUnits(amount, 18);
+
+      // Check if approval is needed
+      if (needsApproval) {
+        console.log('Approval needed, approving tokens...');
+        try {
+          setShowProcessingPopup(true);
+          setApproveStatus('pending');
+          
+          // Submit approval transaction and wait for the hash
+          const hash = await approve({
+            address: CUSS_TOKEN_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: 'approve',
+            args: [SWEAR_JAR_ADDRESS, amountInWei],
+          });
+
+          setCurrentTxHash(hash);
+
+          // Wait for approval transaction to be mined
+          console.log('Waiting for approval confirmation...');
+          await publicClient.waitForTransactionReceipt({ 
+            hash,
+            timeout: 60_000 // 60 seconds timeout
+          });
+
+          setApproveStatus('success');
+
+          // Wait a bit for the chain to update
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Refetch allowance
+          await refetchAllowance?.();
+          
+          // Get the latest allowance
+          const updatedAllowance = await publicClient.readContract({
+            address: CUSS_TOKEN_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: 'allowance',
+            args: [address, SWEAR_JAR_ADDRESS],
+          }) as bigint;
+
+          console.log('Updated allowance:', updatedAllowance.toString());
+          console.log('Required amount:', amountInWei.toString());
+
+          // Verify the allowance was updated
+          if (updatedAllowance < amountInWei) {
+            throw new Error('Allowance not updated after approval');
+          }
+
+          console.log('Approval successful, proceeding with deposit');
+        } catch (approvalError) {
+          console.error('Approval process failed:', approvalError);
+          setApproveStatus('error');
+          setShowProcessingPopup(false);
+          setShowFailurePopup(true);
+          return;
+        }
+      }
+
+      // Proceed with deposit
       console.log('Depositing:', amountInWei.toString());
-      
-      await deposit({
+      setDepositStatus('pending');
+      const hash = await deposit({
         address: SWEAR_JAR_ADDRESS,
         abi: SWEAR_JAR_ABI,
         functionName: 'deposit',
         args: [amountInWei],
       });
+
+      setCurrentTxHash(hash);
+      setDepositStatus('success');
+
     } catch (error) {
       console.error('Deposit failed:', error);
+      setDepositStatus('error');
+      setShowProcessingPopup(false);
+      setShowFailurePopup(true);
     }
   };
 
+  // Handle withdraw
   const handleWithdraw = async () => {
-    if (!isConnected) return;
+    if (!isConnected || !publicClient) return;
     try {
-      await withdraw({
+      setWithdrawStatus('pending');
+      setShowProcessingPopup(true);
+      
+      const hash = await withdraw({
         address: SWEAR_JAR_ADDRESS,
         abi: SWEAR_JAR_ABI,
         functionName: 'withdraw',
       });
+
+      setCurrentTxHash(hash);
+      setWithdrawStatus('success');
+      
+      // Wait for confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ 
+        hash,
+        timeout: 60_000
+      });
+
+      if (receipt.status === 'success') {
+        setShowProcessingPopup(false);
+        setShowWithdrawSuccessPopup(true);
+        refetchDeposited?.();
+        refetchBurned?.();
+      }
     } catch (error) {
       console.error('Withdrawal failed:', error);
+      setWithdrawStatus('error');
+      setShowProcessingPopup(false);
     }
   };
 
@@ -501,8 +470,8 @@ export default function Home() {
             >
               <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
                 {!isConnected ? 'Connect Wallet' : 
-                 isPending ? 'Processing...' :
-                 needsApproval ? 'Approve $CUSS' : 'Deposit $CUSS'}
+                 isPending ? 'Processing...' : 
+                 'Deposit $CUSS'}
               </span>
             </button>
           </div>
