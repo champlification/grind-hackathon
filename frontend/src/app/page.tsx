@@ -121,12 +121,15 @@ export default function Home() {
   const [needsApproval, setNeedsApproval] = useState(true);
   const [isPending, setIsPending] = useState(false);
   
-  // Contract read states
+  // Contract read states - only enabled when connected
   const { data: depositedAmount, refetch: refetchDeposited } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getDeposited',
     args: address ? [address] : undefined,
+    query: {
+      enabled: Boolean(address && isConnected),
+    }
   });
 
   const { data: burnedAmount, refetch: refetchBurned } = useReadContract({
@@ -134,24 +137,42 @@ export default function Home() {
     abi: SWEAR_JAR_ABI,
     functionName: 'getCleansed',
     args: address ? [address] : undefined,
+    query: {
+      enabled: Boolean(address && isConnected),
+    }
   });
 
+  // Static contract reads - can be cached
   const { data: minWithdrawAmount } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getMinWithdrawAmount',
+    query: {
+      staleTime: 1000 * 60 * 60, // Cache for 1 hour
+      enabled: isConnected,
+    }
   });
 
   const { data: cleanseOdds } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getCleanseOdds',
+    query: {
+      staleTime: 1000 * 60 * 60, // Cache for 1 hour
+      enabled: isConnected,
+    }
   });
 
-  // Convert values for comparison
-  const depositedAmountNum = depositedAmount ?? BigInt(0);
-  const minWithdrawAmountNum = minWithdrawAmount ?? BigInt(0);
-  const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
+  // Check token approval - only when needed
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
+    address: CUSS_TOKEN_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: [address ?? '0x0', SWEAR_JAR_ADDRESS],
+    query: {
+      enabled: Boolean(address && isConnected && amount && !isNaN(parseFloat(amount))),
+    }
+  });
 
   // Contract write functions
   const { writeContractAsync: approve } = useWriteContract();
@@ -161,14 +182,6 @@ export default function Home() {
   const [withdrawStatus, setWithdrawStatus] = useState('idle');
   const [approveStatus, setApproveStatus] = useState('idle');
   const [currentTxHash, setCurrentTxHash] = useState<`0x${string}` | undefined>(undefined);
-
-  // Check token approval
-  const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: CUSS_TOKEN_ADDRESS,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address ?? '0x0', SWEAR_JAR_ADDRESS],
-  });
 
   // Wait for transaction receipt
   const { isSuccess: isTransactionConfirmed } = useWaitForTransactionReceipt({
@@ -541,6 +554,9 @@ export default function Home() {
   };
 
   // Update the minWithdrawAmount comparison
+  const depositedAmountNum = depositedAmount ?? BigInt(0);
+  const minWithdrawAmountNum = minWithdrawAmount ?? BigInt(0);
+  const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
   const needsMore = depositedAmountNum < minWithdrawAmountNum;
   const amountNeeded = needsMore ? minWithdrawAmountNum - depositedAmountNum : 0n;
 
