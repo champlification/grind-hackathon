@@ -709,8 +709,9 @@ export default function Home() {
               topics: log.topics,
             });
             
-            if (event.args.user) {
-              uniqueAddresses.add(event.args.user);
+            // Only add address if it's a user-related event
+            if ('user' in event.args && typeof event.args.user === 'string') {
+              uniqueAddresses.add(event.args.user as `0x${string}`);
             }
           } catch (error) {
             console.log('Could not decode event:', error);
