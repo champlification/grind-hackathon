@@ -3,7 +3,7 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWatchContractEvent, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
-import { formatUnits, parseUnits, decodeEventLog } from 'viem';
+import { formatUnits, parseUnits, decodeEventLog, parseAbiItem } from 'viem';
 import { SWEAR_JAR_ADDRESS, CUSS_TOKEN_ADDRESS } from '../config/addresses';
 import { SWEAR_JAR_ABI } from '../config/abis';
 import { ERC20_ABI } from '../config/abis';
@@ -145,18 +145,71 @@ type DecodedEventLog = {
   };
 };
 
+// Add type for user stats
+type UserStats = {
+  address: string;
+  depositedAmount: bigint;
+  cleansedAmount: bigint;
+  mercyCount: bigint;
+  mercyAmount: bigint;
+};
+
+// Add Leaderboard Component after Instructions Component
+const LeaderboardPanel = ({ 
+  title, 
+  data,
+  valueFormatter = (val: bigint) => formatTokenAmount(val),
+  isLoading = false
+}: { 
+  title: string;
+  data: { address: string; value: bigint }[];
+  valueFormatter?: (val: bigint) => string;
+  isLoading?: boolean;
+}) => {
+  return (
+    <div className="bg-[#1A1A1A] rounded-2xl p-6 shadow-xl border border-[#2A2A2A]">
+      <h2 className="text-xl font-bold mb-4 text-[#00FF8C]">{title}</h2>
+      {isLoading ? (
+        <div className="animate-pulse space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-12 bg-[#2A2A2A] rounded-lg"></div>
+          ))}
+        </div>
+      ) : data.length === 0 ? (
+        <div className="text-center text-[#CCCCCC] py-4">
+          No data available yet
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.map((item, index) => (
+            <div key={index} className="flex items-center justify-between p-3 bg-[#0A0A0A] rounded-lg border border-[#2A2A2A]">
+              <div className="flex items-center space-x-3">
+                <span className="text-[#00FF8C] font-bold">#{index + 1}</span>
+                <span className="font-mono text-sm text-[#CCCCCC]">
+                  {item.address.slice(0, 6)}...{item.address.slice(-4)}
+                </span>
+              </div>
+              <span className="font-bold text-white">{valueFormatter(item.value)} $CUSS</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState('1');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [showCleansedPopup, setShowCleansedPopup] = useState(false);
   const [showErrorPopup, setShowErrorPopup] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
   const [showProcessingPopup, setShowProcessingPopup] = useState(false);
   const [showBurnedPopup, setShowBurnedPopup] = useState(false);
   const [needsApproval, setNeedsApproval] = useState(true);
   const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   // Contract read states - only enabled when connected
   const { data: depositedAmount, refetch: refetchDeposited } = useReadContract({
@@ -259,6 +312,10 @@ export default function Home() {
   const [processingGif, setProcessingGif] = useState('/static/GrindWen01_GBG.gif');
   const processingGifs = ['/static/GrindWen01_GBG.gif', '/static/GrindSwing.gif'];
 
+  // Add state for leaderboard data
+  const [userStats, setUserStats] = useState<UserStats[]>([]);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+
   // Update approval status when allowance changes or amount changes
   useEffect(() => {
     const checkApproval = async () => {
@@ -349,29 +406,31 @@ export default function Home() {
         // Try to decode each log
         for (const log of logs) {
           try {
-            const decodedLog = decodeEventLog({
+            const event = decodeEventLog({
               abi: SWEAR_JAR_ABI,
               data: log.data,
               topics: log.topics,
-              strict: false
-            }) as DecodedEventLog;
+            }) as { 
+              eventName: string; 
+              args: { user?: `0x${string}`; amount?: bigint; wasCleansed?: boolean; }
+            };
 
             console.log('Processing event:', {
-              eventName: decodedLog.eventName,
-              args: decodedLog.args,
+              eventName: event.eventName,
+              args: event.args,
               currentTxHash,
               currentTransactionType
             });
 
             // Only process if it's for the current user
-            const isCurrentUser = decodedLog.args.user?.toLowerCase() === address?.toLowerCase();
+            const isCurrentUser = event.args.user?.toLowerCase() === address?.toLowerCase();
             if (!isCurrentUser) continue;
 
             foundEvent = true;
 
-            switch (decodedLog.eventName) {
+            switch (event.eventName) {
               case 'Deposited':
-                wasTokenCleansed = decodedLog.args.wasCleansed ?? false;
+                wasTokenCleansed = event.args.wasCleansed ?? false;
                 break;
 
               case 'TokensCleansed':
@@ -496,14 +555,11 @@ export default function Home() {
         throw new Error('Allowance not updated after approval');
       }
     } catch (error) {
-      console.error('Approval process failed:', error);
-      setApproveStatus('error');
-      setShowProcessingPopup(false);
+      console.error('Approval error:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to approve tokens');
       setShowErrorPopup(true);
-      setErrorMessage('Failed to approve tokens. Please try again.');
       setIsTransacting(false);
       setCurrentTransactionType(null);
-      throw error;
     }
   };
 
@@ -573,11 +629,10 @@ export default function Home() {
       await handleTokenDeposit(amountInWei);
 
     } catch (error) {
-      console.error('Deposit failed:', error);
+      console.error('Deposit error:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to deposit tokens');
       setDepositStatus('error');
-      setShowProcessingPopup(false);
       setShowErrorPopup(true);
-      setErrorMessage('Failed to deposit tokens. Please try again.');
       setIsTransacting(false);
       setCurrentTransactionType(null);
     }
@@ -628,6 +683,95 @@ export default function Home() {
   const burnRatioNum = Number(burnRatio ?? BigInt(50)); // Default 50%
   const needsMore = depositedAmountNum < minWithdrawAmountNum;
   const amountNeeded = needsMore ? minWithdrawAmountNum - depositedAmountNum : 0n;
+
+  // Add effect to fetch user stats
+  useEffect(() => {
+    const fetchUserStats = async () => {
+      if (!publicClient) return;
+
+      try {
+        setIsLoadingStats(true);
+
+        // Update the event filtering to properly type check and handle errors
+        const logs = await publicClient.getLogs({
+          address: SWEAR_JAR_ADDRESS as `0x${string}`,
+          fromBlock: BigInt(0),
+          toBlock: 'latest'
+        });
+
+        // Filter for Deposited events and extract unique addresses
+        const uniqueAddresses = new Set<`0x${string}`>();
+        for (const log of logs) {
+          try {
+            const event = decodeEventLog({
+              abi: SWEAR_JAR_ABI,
+              data: log.data,
+              topics: log.topics,
+            });
+            
+            if (event.args.user) {
+              uniqueAddresses.add(event.args.user);
+            }
+          } catch (error) {
+            console.log('Could not decode event:', error);
+            continue;
+          }
+        }
+
+        const recentAddresses = Array.from(uniqueAddresses).slice(-100);
+
+        // Fetch stats for each address
+        const stats = await Promise.all(
+          recentAddresses.map(async (address) => {
+            const result = await publicClient.readContract({
+              address: SWEAR_JAR_ADDRESS,
+              abi: SWEAR_JAR_ABI,
+              functionName: 'getUserStats',
+              args: [address],
+            }) as [bigint, bigint, bigint, bigint];
+
+            return {
+              address: address as string,
+              depositedAmount: result[0],
+              cleansedAmount: result[1],
+              mercyCount: result[2],
+              mercyAmount: result[3],
+            };
+          })
+        );
+
+        setUserStats(stats);
+      } catch (error) {
+        console.error('Error fetching user stats:', error);
+      } finally {
+        setIsLoadingStats(false);
+      }
+    };
+
+    fetchUserStats();
+  }, [publicClient]);
+
+  // Prepare leaderboard data
+  const getMostCleansed = () => {
+    return [...userStats]
+      .sort((a, b) => (b.cleansedAmount > a.cleansedAmount ? 1 : -1))
+      .slice(0, 3)
+      .map(stat => ({ address: stat.address, value: stat.cleansedAmount }));
+  };
+
+  const getMostDeposited = () => {
+    return [...userStats]
+      .sort((a, b) => (b.depositedAmount > a.depositedAmount ? 1 : -1))
+      .slice(0, 3)
+      .map(stat => ({ address: stat.address, value: stat.depositedAmount }));
+  };
+
+  const getMostMercy = () => {
+    return [...userStats]
+      .sort((a, b) => (b.mercyAmount > a.mercyAmount ? 1 : -1))
+      .slice(0, 3)
+      .map(stat => ({ address: stat.address, value: stat.mercyAmount }));
+  };
 
   return (
     <main className="min-h-screen bg-[#0A0A0A] text-white relative">
@@ -760,6 +904,28 @@ export default function Home() {
               minWithdrawAmount={minWithdrawAmountNum}
               mercyPercentage={mercyPercentageNum}
               burnRatio={burnRatioNum}
+            />
+          </div>
+        </div>
+
+        {/* Leaderboards Section */}
+        <div className="w-full max-w-5xl mx-auto mt-8 mb-12">
+          <h2 className="text-2xl font-bold mb-6 text-center text-white">Leaderboards</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <LeaderboardPanel
+              title="Most Cleansed"
+              data={getMostCleansed()}
+              isLoading={isLoadingStats}
+            />
+            <LeaderboardPanel
+              title="Most Deposited"
+              data={getMostDeposited()}
+              isLoading={isLoadingStats}
+            />
+            <LeaderboardPanel
+              title="Most Mercy Received"
+              data={getMostMercy()}
+              isLoading={isLoadingStats}
             />
           </div>
         </div>
@@ -903,6 +1069,30 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Error Message Display */}
+      {errorMessage && (
+        <div className="text-red-500 mt-2">
+          {errorMessage}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="relative z-10 w-full bg-[#1A1A1A] border-t border-[#2A2A2A] py-4 mt-8">
+        <div className="container mx-auto px-6 text-center">
+          <a 
+            href="https://x.com/champlification" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="inline-flex items-center space-x-2 text-[#CCCCCC] hover:text-[#00FF8C] transition-colors"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            <span>@champlification</span>
+          </a>
+        </div>
+      </div>
     </main>
   );
 }
