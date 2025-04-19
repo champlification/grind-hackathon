@@ -2,13 +2,14 @@
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useState, useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWatchContractEvent, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
-import { formatUnits, parseUnits, decodeEventLog, parseAbiItem } from 'viem';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
+import { formatUnits, parseUnits, decodeEventLog } from 'viem';
 import { SWEAR_JAR_ADDRESS, CUSS_TOKEN_ADDRESS } from '../config/addresses';
 import { SWEAR_JAR_ABI } from '../config/abis';
 import { ERC20_ABI } from '../config/abis';
+import Image from 'next/image';
 
-// Add event type definitions at the top of the file
+// Add type definitions at the top of the file
 type SwearJarEventName = 'Deposited' | 'TokensCleansed' | 'Withdrawn' | 'MercyGranted';
 
 type SwearJarEventArgs = {
@@ -31,13 +32,6 @@ type SwearJarEventArgs = {
     amount: bigint;
   };
 };
-
-type SwearJarEvent = {
-  [K in SwearJarEventName]: {
-    eventName: K;
-    args: SwearJarEventArgs[K];
-  };
-}[SwearJarEventName];
 
 // Add ProcessingMessage enum
 type ProcessingMessageType = 
@@ -104,7 +98,7 @@ const Instructions = ({
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
-            <span>There's a {cleanseOddsNum}% chance your $CUSS gets Cleansed (You lose it)
+            <span>There&apos;s a {cleanseOddsNum}% chance your $CUSS gets Cleansed (You lose it)
               <br />
               <span className="text-sm opacity-75">
                 Helps incentivize you to stop swearing
@@ -115,7 +109,7 @@ const Instructions = ({
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
-            <span>There's a small chance you will be granted Mercy
+            <span>There&apos;s a small chance you will be granted Mercy
               <br />
               <span className="text-sm opacity-75">{mercyPercentage}% of your total Cleansed $CUSS will be returned to you</span>
             </span>
@@ -124,25 +118,6 @@ const Instructions = ({
       </div>
     </div>
   );
-};
-
-// Add event signatures we care about
-const EVENT_SIGNATURES = {
-  Deposited: 'Deposited(address,uint256,bool)',
-  TokensCleansed: 'TokensCleansed(address,uint256,uint256)',
-  MercyGranted: 'MercyGranted(address,uint256)',
-};
-
-// Add these type definitions at the top of the file, after the imports
-type DecodedEventLog = {
-  eventName: string;
-  args: {
-    user?: `0x${string}`;
-    amount?: bigint;
-    wasCleansed?: boolean;
-    burnAmount?: bigint;
-    contractAmount?: bigint;
-  };
 };
 
 // Add type for user stats
@@ -206,10 +181,11 @@ export default function Home() {
   const [showErrorPopup, setShowErrorPopup] = useState(false);
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
   const [showProcessingPopup, setShowProcessingPopup] = useState(false);
-  const [showBurnedPopup, setShowBurnedPopup] = useState(false);
-  const [needsApproval, setNeedsApproval] = useState(true);
+  const [showMercyPopup, setShowMercyPopup] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isTransacting, setIsTransacting] = useState(false);
+  const [currentTransactionType, setCurrentTransactionType] = useState<'approval' | 'deposit' | null>(null);
   
   // Contract read states - only enabled when connected
   const { data: depositedAmount, refetch: refetchDeposited } = useReadContract({
@@ -299,15 +275,6 @@ export default function Home() {
   // Add a state for the processing message
   const [processingMessage, setProcessingMessage] = useState(PROCESSING_MESSAGES.INITIAL);
 
-  // Add a state to track the overall transaction flow
-  const [isTransacting, setIsTransacting] = useState(false);
-
-  // Add a new state to track transaction type
-  const [currentTransactionType, setCurrentTransactionType] = useState<'approval' | 'deposit' | null>(null);
-
-  // Add new state for mercy popup
-  const [showMercyPopup, setShowMercyPopup] = useState(false);
-
   // Add state for processing GIF selection
   const [processingGif, setProcessingGif] = useState('/static/GrindWen01_GBG.gif');
   const processingGifs = ['/static/GrindWen01_GBG.gif', '/static/GrindSwing.gif'];
@@ -320,7 +287,6 @@ export default function Home() {
   useEffect(() => {
     const checkApproval = async () => {
       if (!address || !amount || allowance === undefined || allowance === null) {
-        setNeedsApproval(true);
         return;
       }
 
@@ -333,15 +299,14 @@ export default function Home() {
           amountInWei: amountInWei.toString()
         });
         
-        setNeedsApproval(currentAllowance < amountInWei);
+        setIsPending(false);
       } catch (error) {
         console.error('Error checking approval:', error);
-        setNeedsApproval(true);
       }
     };
 
     checkApproval();
-  }, [address, allowance, amount]); // Add amount to dependencies
+  }, [address, allowance, amount]);
 
   // Reset UI state when amount changes
   useEffect(() => {
@@ -874,9 +839,11 @@ export default function Home() {
               transform hover:scale-105 active:scale-95 
               ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100'}`}
             >
-              <img 
-                src="/static/GrindSwear.png" 
-                alt="Deposit Button" 
+              <Image 
+                src="/static/GrindSwear.png"
+                alt="Deposit Button"
+                width={192}
+                height={192}
                 className="w-full h-full object-contain rounded-3xl"
               />
             </button>
