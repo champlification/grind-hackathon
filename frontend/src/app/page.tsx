@@ -67,23 +67,58 @@ const formatTokenAmount = (amount: bigint | undefined): string => {
 };
 
 // Instructions Component
-const Instructions = ({ cleanseOddsNum, minWithdrawAmount }: { cleanseOddsNum: number, minWithdrawAmount: bigint }) => {
+const Instructions = ({ 
+  cleanseOddsNum, 
+  minWithdrawAmount,
+  mercyPercentage,
+  burnRatio
+}: { 
+  cleanseOddsNum: number, 
+  minWithdrawAmount: bigint | undefined,
+  mercyPercentage: number,
+  burnRatio: number
+}) => {
+  const minAmount = minWithdrawAmount ?? BigInt(10) * BigInt(10**18); // Default 10 tokens if undefined
+  
   return (
-    <div className="w-full max-w-md mx-auto mt-8 p-8 bg-[#1A1A1A] rounded-2xl shadow-xl border border-[#2A2A2A]">
-      <div className="text-center">
-        <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
-        <ul className="space-y-2 text-[#CCCCCC]">
-          <li className="flex items-center justify-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-            <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
+    <div className="w-full">
+      <div className="text-left">
+        <h1 className="text-2xl font-bold mb-2 text-[#00FF8C]">Fully On-Chain Gamified Swear Jar</h1>
+        <p className="mb-6 text-[#CCCCCC]">
+          Trying to stop swearing or break a habit? Put some $CUSS in the swear jar each time you swear or perform the bad habit.
+        </p>
+        
+        <h2 className="text-xl font-semibold mb-3 text-[#00FF8C]">How it works</h2>
+        <ul className="space-y-3 text-[#CCCCCC]">
+          <li className="flex items-start space-x-2">
+            <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
+            <span>Choose the amount of $CUSS to send</span>
           </li>
-          <li className="flex items-center justify-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-            <span>{cleanseOddsNum}% chance it gets cleansed</span>
+          <li className="flex items-start space-x-2">
+            <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
+            <span>Click the red button to put it in the Swear Jar</span>
           </li>
-          <li className="flex items-center justify-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-            <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
+          <li className="flex items-start space-x-2">
+            <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
+            <span>After you've put {formatTokenAmount(minAmount)}+ $CUSS in the swear jar, you can withdraw</span>
+          </li>
+          <li className="flex items-start space-x-2">
+            <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
+            <span>There's a {cleanseOddsNum}% chance your $CUSS gets Cleansed (You lose it)
+              <br />
+              <span className="text-sm opacity-75">
+                Helps incentivize you to stop swearing
+                <br />
+                When Cleansed: {burnRatio}% of tokens are burned forever
+              </span>
+            </span>
+          </li>
+          <li className="flex items-start space-x-2">
+            <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
+            <span>There's a small chance you will be granted Mercy
+              <br />
+              <span className="text-sm opacity-75">{mercyPercentage}% of your total Cleansed $CUSS will be returned to you</span>
+            </span>
           </li>
         </ul>
       </div>
@@ -142,14 +177,13 @@ export default function Home() {
     }
   });
 
-  // Static contract reads - can be cached
+  // Static contract reads - no wallet needed
   const { data: minWithdrawAmount } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getMinWithdrawAmount',
     query: {
       staleTime: 1000 * 60 * 60, // Cache for 1 hour
-      enabled: isConnected,
     }
   });
 
@@ -159,7 +193,24 @@ export default function Home() {
     functionName: 'getCleanseOdds',
     query: {
       staleTime: 1000 * 60 * 60, // Cache for 1 hour
-      enabled: isConnected,
+    }
+  });
+
+  const { data: mercyPercentage } = useReadContract({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getMercyPercentage',
+    query: {
+      staleTime: 1000 * 60 * 60, // Cache for 1 hour
+    }
+  });
+
+  const { data: burnRatio } = useReadContract({
+    address: SWEAR_JAR_ADDRESS,
+    abi: SWEAR_JAR_ABI,
+    functionName: 'getBurnRatio',
+    query: {
+      staleTime: 1000 * 60 * 60, // Cache for 1 hour
     }
   });
 
@@ -553,10 +604,12 @@ export default function Home() {
     }
   };
 
-  // Update the minWithdrawAmount comparison
+  // Convert values for comparison with safe defaults
   const depositedAmountNum = depositedAmount ?? BigInt(0);
-  const minWithdrawAmountNum = minWithdrawAmount ?? BigInt(0);
-  const cleanseOddsNum = Number(cleanseOdds ?? BigInt(0));
+  const minWithdrawAmountNum = minWithdrawAmount ?? BigInt(10) * BigInt(10**18); // Default 10 tokens
+  const cleanseOddsNum = Number(cleanseOdds ?? BigInt(10)); // Default 10%
+  const mercyPercentageNum = Number(mercyPercentage ?? BigInt(50)); // Default 50%
+  const burnRatioNum = Number(burnRatio ?? BigInt(50)); // Default 50%
   const needsMore = depositedAmountNum < minWithdrawAmountNum;
   const amountNeeded = needsMore ? minWithdrawAmountNum - depositedAmountNum : 0n;
 
@@ -667,23 +720,12 @@ export default function Home() {
 
           {/* Instructions Component */}
           <div className="bg-[#1A1A1A] rounded-2xl p-8 shadow-xl border border-[#2A2A2A] flex items-center">
-            <div className="text-center w-full">
-              <p className="mb-4 text-lg font-medium text-[#00FF8C]">When you swear, deposit $CUSS tokens:</p>
-              <ul className="space-y-2 text-[#CCCCCC]">
-                <li className="flex items-center justify-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                  <span>{100 - cleanseOddsNum}% chance it goes into your jar</span>
-                </li>
-                <li className="flex items-center justify-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                  <span>{cleanseOddsNum}% chance it gets cleansed</span>
-                </li>
-                <li className="flex items-center justify-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-[#00FF8C]"></span>
-                  <span>Withdraw when you reach {formatTokenAmount(minWithdrawAmount)} $CUSS</span>
-                </li>
-              </ul>
-            </div>
+            <Instructions 
+              cleanseOddsNum={cleanseOddsNum} 
+              minWithdrawAmount={minWithdrawAmountNum}
+              mercyPercentage={mercyPercentageNum}
+              burnRatio={burnRatioNum}
+            />
           </div>
         </div>
       </div>
