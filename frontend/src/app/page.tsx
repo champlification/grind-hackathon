@@ -96,7 +96,7 @@ const Instructions = ({
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
-            <span>Click the red button to put it in the Swear Jar</span>
+            <span>Click the $GRIND Hamster to put $CUSS in the Swear Jar</span>
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
@@ -149,7 +149,9 @@ export default function Home() {
   const { address, isConnected } = useAccount();
   const [amount, setAmount] = useState('1');
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
-  const [showFailurePopup, setShowFailurePopup] = useState(false);
+  const [showCleansedPopup, setShowCleansedPopup] = useState(false);
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [showWithdrawSuccessPopup, setShowWithdrawSuccessPopup] = useState(false);
   const [showProcessingPopup, setShowProcessingPopup] = useState(false);
   const [showBurnedPopup, setShowBurnedPopup] = useState(false);
@@ -167,7 +169,7 @@ export default function Home() {
     }
   });
 
-  const { data: burnedAmount, refetch: refetchBurned } = useReadContract({
+  const { data: cleansedAmount, refetch: refetchCleansed } = useReadContract({
     address: SWEAR_JAR_ADDRESS,
     abi: SWEAR_JAR_ABI,
     functionName: 'getCleansed',
@@ -253,6 +255,10 @@ export default function Home() {
   // Add new state for mercy popup
   const [showMercyPopup, setShowMercyPopup] = useState(false);
 
+  // Add state for processing GIF selection
+  const [processingGif, setProcessingGif] = useState('/static/GrindWen01_GBG.gif');
+  const processingGifs = ['/static/GrindWen01_GBG.gif', '/static/GrindSwing.gif'];
+
   // Update approval status when allowance changes or amount changes
   useEffect(() => {
     const checkApproval = async () => {
@@ -283,16 +289,17 @@ export default function Home() {
   // Reset UI state when amount changes
   useEffect(() => {
     setShowSuccessPopup(false);
-    setShowFailurePopup(false);
+    setShowCleansedPopup(false);
     setShowProcessingPopup(false);
     setIsTransacting(false);
     setCurrentTransactionType(null);
   }, [amount]);
 
-  // Update resetAllPopups to also reset currentTxHash
+  // Update resetAllPopups to also reset currentTxHash and processing GIF
   const resetAllPopups = () => {
     setShowSuccessPopup(false);
-    setShowFailurePopup(false);
+    setShowCleansedPopup(false);
+    setShowErrorPopup(false);
     setShowWithdrawSuccessPopup(false);
     setShowProcessingPopup(false);
     setShowMercyPopup(false);
@@ -300,6 +307,8 @@ export default function Home() {
     setCurrentTransactionType(null);
     setProcessingMessage(PROCESSING_MESSAGES.INITIAL);
     setCurrentTxHash(undefined);  // Reset the transaction hash
+    // Select random GIF for next time
+    setProcessingGif(processingGifs[Math.floor(Math.random() * processingGifs.length)]);
     // Refresh allowance
     refetchAllowance?.();
   };
@@ -390,23 +399,23 @@ export default function Home() {
           if (wasTokenCleansed) {
             if (mercyGranted) {
               setShowMercyPopup(true);
-              setShowFailurePopup(false);
+              setShowCleansedPopup(false);
               setShowSuccessPopup(false);
             } else {
-              setShowFailurePopup(true);
+              setShowCleansedPopup(true);
               setShowSuccessPopup(false);
               setShowMercyPopup(false);
             }
           } else {
             setShowSuccessPopup(true);
-            setShowFailurePopup(false);
+            setShowCleansedPopup(false);
             setShowMercyPopup(false);
           }
         }
 
         // Update stats regardless of outcome
         refetchDeposited?.();
-        refetchBurned?.();
+        refetchCleansed?.();
         refetchAllowance?.();
 
       } catch (error) {
@@ -420,7 +429,7 @@ export default function Home() {
     };
 
     fetchReceipt();
-  }, [isTransactionConfirmed, currentTxHash, publicClient, currentTransactionType, address, isTransacting, refetchDeposited, refetchBurned, refetchAllowance]);
+  }, [isTransactionConfirmed, currentTxHash, publicClient, currentTransactionType, address, isTransacting, refetchDeposited, refetchCleansed, refetchAllowance]);
 
   // Update isPending state based on transaction status
   useEffect(() => {
@@ -490,7 +499,8 @@ export default function Home() {
       console.error('Approval process failed:', error);
       setApproveStatus('error');
       setShowProcessingPopup(false);
-      setShowFailurePopup(true);
+      setShowErrorPopup(true);
+      setErrorMessage('Failed to approve tokens. Please try again.');
       setIsTransacting(false);
       setCurrentTransactionType(null);
       throw error;
@@ -546,6 +556,9 @@ export default function Home() {
       // Reset all UI states before starting new deposit
       resetAllPopups();
       
+      // Select random GIF before showing popup
+      setProcessingGif(processingGifs[Math.floor(Math.random() * processingGifs.length)]);
+      
       setIsTransacting(true);
       setShowProcessingPopup(true);
       setProcessingMessage(PROCESSING_MESSAGES.INITIAL);
@@ -563,7 +576,8 @@ export default function Home() {
       console.error('Deposit failed:', error);
       setDepositStatus('error');
       setShowProcessingPopup(false);
-      setShowFailurePopup(true);
+      setShowErrorPopup(true);
+      setErrorMessage('Failed to deposit tokens. Please try again.');
       setIsTransacting(false);
       setCurrentTransactionType(null);
     }
@@ -595,12 +609,14 @@ export default function Home() {
         setShowProcessingPopup(false);
         setShowWithdrawSuccessPopup(true);
         refetchDeposited?.();
-        refetchBurned?.();
+        refetchCleansed?.();
       }
     } catch (error) {
       console.error('Withdrawal failed:', error);
       setWithdrawStatus('error');
       setShowProcessingPopup(false);
+      setShowErrorPopup(true);
+      setErrorMessage('Failed to withdraw tokens. Please try again.');
     }
   };
 
@@ -670,7 +686,7 @@ export default function Home() {
                 <div className="text-sm text-[#CCCCCC] mb-1">Cleansed</div>
                 <div className="flex items-baseline">
                   <span className="text-2xl font-bold text-white">
-                    {isConnected ? formatTokenAmount(burnedAmount) : '0'}
+                    {isConnected ? formatTokenAmount(cleansedAmount) : '0'}
                   </span>
                   <span className="ml-2 text-[#FF3333]">$CUSS</span>
                 </div>
@@ -708,23 +724,33 @@ export default function Home() {
             <button
               onClick={handleDeposit}
               disabled={!isConnected || isPending}
-              className={`w-32 h-32 bg-[#1A1A1A] text-[#FF3333] text-xl font-bold rounded-full 
-              shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)] 
-              border-2 border-[#FF3333] 
+              className={`relative w-48 h-48 mx-auto flex items-center justify-center
               transition-all duration-300 ease-in-out
               transform hover:scale-105 active:scale-95 
-              flex items-center justify-center mx-auto 
-              hover:border-[#FF5555] hover:shadow-[0_0_30px_rgba(255,51,51,0.3),inset_0_0_30px_rgba(255,51,51,0.2)] 
-              group relative
-              before:absolute before:inset-0 before:rounded-full before:shadow-[0_0_100px_20px_rgba(255,51,51,0.1)] before:z-[-1]
-              ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100 hover:bg-[#1A1A1A] hover:border-[#FF3333] hover:shadow-[0_0_20px_rgba(255,51,51,0.2),inset_0_0_20px_rgba(255,51,51,0.1)]'}`}
+              ${(!isConnected || isPending) && 'opacity-50 cursor-not-allowed hover:scale-100'}`}
             >
-              <span className={`${isConnected ? 'group-hover:animate-pulse' : ''}`}>
-                {!isConnected ? 'Connect Wallet' : 
-                 isPending ? 'Processing...' : 
-                 'Deposit $CUSS'}
-              </span>
+              <img 
+                src="/static/GrindSwear.png" 
+                alt="Deposit Button" 
+                className="w-full h-full object-contain rounded-3xl"
+              />
             </button>
+
+            {/* Contract Addresses */}
+            <div className="mt-8 text-center space-y-2 text-xs text-[#CCCCCC]">
+              <div>
+                <div className="font-medium mb-1">SwearJar Contract:</div>
+                <div className="font-mono bg-[#0A0A0A] px-3 py-1 rounded-lg border border-[#2A2A2A]">
+                  {SWEAR_JAR_ADDRESS}
+                </div>
+              </div>
+              <div>
+                <div className="font-medium mb-1">$CUSS Token Contract:</div>
+                <div className="font-mono bg-[#0A0A0A] px-3 py-1 rounded-lg border border-[#2A2A2A]">
+                  {CUSS_TOKEN_ADDRESS}
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Instructions Component */}
@@ -744,7 +770,7 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
             <img
-              src="/static/GrindRain01_GBG.gif"
+              src={processingGif}
               alt="Processing"
               className="mx-auto mb-4 rounded-xl"
             />
@@ -779,17 +805,45 @@ export default function Home() {
         </div>
       )}
 
-      {/* Failure Popup */}
-      {showFailurePopup && (
+      {/* Cleansed Popup */}
+      {showCleansedPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
             <img
               src="/static/GrindBozo01_GBG.gif"
-              alt="Grind Bozo"
+              alt="Cleansed Tokens"
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
-              Oops! Your $CUSS was cleansed!
+              Your $CUSS was cleansed!
+            </p>
+            <p className="text-[#CCCCCC] mb-4">
+              {burnRatioNum}% of your tokens have been burned forever.
+            </p>
+            <button
+              onClick={resetAllPopups}
+              className="px-6 py-3 bg-[#00FF8C] text-black font-bold rounded-xl hover:bg-[#00CC70] transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error Popup */}
+      {showErrorPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
+            <img
+              src="/static/GrindCry01_GBG.gif"
+              alt="Error Occurred"
+              className="mx-auto mb-4 rounded-xl"
+            />
+            <p className="text-2xl font-bold mb-4 text-[#FF3333]">
+              Transaction Failed
+            </p>
+            <p className="text-[#CCCCCC] mb-4">
+              {errorMessage}
             </p>
             <button
               onClick={resetAllPopups}
@@ -806,8 +860,8 @@ export default function Home() {
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
             <img
-              src="/static/GrindRain01_GBG.gif"
-              alt="Money Rain Hamster"
+              src="/static/GrindTower01_GBG.gif"
+              alt="Money Tower Hamster"
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $CUSS!</p>
@@ -831,10 +885,14 @@ export default function Home() {
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
-              Your tokens were cleansed, but mercy was granted!
+              Divine Mercy Has Been Granted!
             </p>
             <p className="text-[#CCCCCC] mb-4">
-              Some of your tokens have been returned through divine mercy.
+              Although your tokens were cleansed, divine mercy has returned{' '}
+              <span className="text-[#00FF8C] font-bold">
+                {formatTokenAmount(cleansedAmount ? (BigInt(cleansedAmount) * BigInt(mercyPercentageNum)) / 100n : 0n)} $CUSS
+              </span>{' '}
+              to you ({mercyPercentageNum}% of your cleansed tokens).
             </p>
             <button
               onClick={resetAllPopups}
