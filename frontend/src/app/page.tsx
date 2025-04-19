@@ -9,30 +9,6 @@ import { SWEAR_JAR_ABI } from '../config/abis';
 import { ERC20_ABI } from '../config/abis';
 import Image from 'next/image';
 
-// Add type definitions at the top of the file
-type SwearJarEventName = 'Deposited' | 'TokensCleansed' | 'Withdrawn' | 'MercyGranted';
-
-type SwearJarEventArgs = {
-  Deposited: {
-    user: string;
-    amount: bigint;
-    wasCleansed: boolean;
-  };
-  TokensCleansed: {
-    user: string;
-    burnAmount: bigint;
-    contractAmount: bigint;
-  };
-  Withdrawn: {
-    user: string;
-    amount: bigint;
-  };
-  MercyGranted: {
-    user: string;
-    amount: bigint;
-  };
-};
-
 // Add ProcessingMessage enum
 type ProcessingMessageType = 
   | 'INITIAL'
@@ -51,13 +27,13 @@ const PROCESSING_MESSAGES: Record<ProcessingMessageType, string> = {
   DEPOSIT_PENDING: 'Waiting for deposit confirmation...',
 };
 
-// Utility function to format token amounts
-const formatTokenAmount = (amount: bigint | undefined): string => {
-  if (!amount) return '0';
-  return Number(formatUnits(amount, 18)).toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2
-  });
+// Add type for user stats
+type UserStats = {
+  address: string;
+  depositedAmount: bigint;
+  cleansedAmount: bigint;
+  mercyCount: bigint;
+  mercyAmount: bigint;
 };
 
 // Instructions Component
@@ -94,7 +70,7 @@ const Instructions = ({
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
-            <span>After you've put {formatTokenAmount(minAmount)}+ $CUSS in the swear jar, you can withdraw</span>
+            <span>After you&apos;ve put {formatTokenAmount(minAmount)}+ $CUSS in the swear jar, you can withdraw</span>
           </li>
           <li className="flex items-start space-x-2">
             <span className="w-2 h-2 mt-2 rounded-full bg-[#00FF8C] flex-shrink-0"></span>
@@ -120,13 +96,13 @@ const Instructions = ({
   );
 };
 
-// Add type for user stats
-type UserStats = {
-  address: string;
-  depositedAmount: bigint;
-  cleansedAmount: bigint;
-  mercyCount: bigint;
-  mercyAmount: bigint;
+// Utility function to format token amounts
+const formatTokenAmount = (amount: bigint | undefined): string => {
+  if (!amount) return '0';
+  return Number(formatUnits(amount, 18)).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  });
 };
 
 // Add Leaderboard Component after Instructions Component
@@ -903,9 +879,11 @@ export default function Home() {
       {showProcessingPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src={processingGif}
               alt="Processing"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">{processingMessage}</p>
@@ -921,9 +899,11 @@ export default function Home() {
       {showSuccessPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src="/static/GrindBurn04.gif"
               alt="Success Hamster"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
@@ -943,9 +923,11 @@ export default function Home() {
       {showCleansedPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src="/static/GrindBozo01_GBG.gif"
               alt="Cleansed Tokens"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
@@ -968,9 +950,11 @@ export default function Home() {
       {showErrorPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src="/static/GrindCry01_GBG.gif"
               alt="Error Occurred"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#FF3333]">
@@ -993,9 +977,11 @@ export default function Home() {
       {showWithdrawSuccessPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src="/static/GrindTower01_GBG.gif"
               alt="Money Tower Hamster"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">Successfully withdrew your $CUSS!</p>
@@ -1013,9 +999,11 @@ export default function Home() {
       {showMercyPopup && (
         <div className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1A1A1A] p-8 rounded-2xl border border-[#2A2A2A] text-center max-w-md w-full mx-4">
-            <img
+            <Image
               src="/static/GrindRain01_GBG.gif"
               alt="Mercy Granted"
+              width={300}
+              height={300}
               className="mx-auto mb-4 rounded-xl"
             />
             <p className="text-2xl font-bold mb-4 text-[#00FF8C]">
