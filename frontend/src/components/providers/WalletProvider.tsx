@@ -33,7 +33,7 @@ const abstractChain = {
 const connectors = connectorsForWallets([
   {
     groupName: "Abstract",
-    wallets: [() => abstractWallet({ chains: [abstractChain] })]
+    wallets: [abstractWallet]
   }
 ], {
   appName: "Swear Jar",
