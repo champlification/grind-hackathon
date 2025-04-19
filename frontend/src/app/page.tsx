@@ -614,12 +614,21 @@ export default function Home() {
   const amountNeeded = needsMore ? minWithdrawAmountNum - depositedAmountNum : 0n;
 
   return (
-    <main className="min-h-screen bg-[#0A0A0A] text-white">
+    <main className="min-h-screen bg-[#0A0A0A] text-white relative">
       {/* Background Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#1A1A1A] to-[#0A0A0A] pointer-events-none"></div>
 
+      {/* Beta Notice Banner */}
+      <div className="relative z-20 bg-yellow-100 bg-opacity-90 border-b border-yellow-400 py-2">
+        <div className="container mx-auto px-6 text-center">
+          <p className="text-yellow-800 text-sm font-bold">
+            🚧 Beta Version - Running on Abstract Testnet 🚧
+          </p>
+        </div>
+      </div>
+
       {/* Header with Title and Wallet Button */}
-      <div className="relative flex justify-between items-center px-6 py-6 z-10">
+      <div className="relative z-10 flex justify-between items-center px-6 py-6">
         <h1 className="text-3xl font-bold">
           <span className="text-white">Swear</span>
           <span className="text-[#00FF8C]">Jar</span>
